@@ -1,25 +1,771 @@
-import logo from './logo.svg';
-import './App.css';
+import { useState } from "react";
 
-function App() {
+// ── Constants ────────────────────────────────────────────────────────────────
+
+const SCHOOLS = ["Williams College","Middlebury College","Trinity College","Bowdoin College","Hamilton College","Colby College","Amherst College","Wesleyan University","Tufts University","Bates College","Connecticut College"];
+const DIMS = ["skating","skill","size","sense","spirit"];
+const DIM_LABELS = { skating:"Skating", skill:"Skill", size:"Size/Strength", sense:"Sense", spirit:"Spirit" };
+const COLUMNS = [
+  { key:"identified",  label:"Identified",            color:"#64748B" },
+  { key:"contacted",   label:"Contact Made",           color:"#0EA5E9" },
+  { key:"building",    label:"Building Relationship",  color:"#F59E0B" },
+  { key:"offer",       label:"Offer Extended",         color:"#10B981" },
+];
+const C = {
+  bg:"#0A0E1A", surface:"#111827", card:"#1A2235", border:"#1E2D45",
+  accent:"#0EA5E9", gold:"#F59E0B", green:"#10B981", red:"#EF4444",
+  purple:"#A855F7", text:"#F1F5F9", muted:"#64748B",
+};
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
+function avgScores(evals) {
+  if (!evals || evals.length === 0) return { skating:3, skill:3, size:3, sense:3, spirit:3 };
+  const sums = { skating:0, skill:0, size:0, sense:0, spirit:0 };
+  evals.forEach(e => DIMS.forEach(d => { sums[d] += e.scores[d]; }));
+  const out = {};
+  DIMS.forEach(d => { out[d] = sums[d] / evals.length; });
+  return out;
+}
+function compositeAvg(scores) { return DIMS.reduce((s,d) => s + scores[d], 0) / 5; }
+function fmtScore(n) { return Number(n).toFixed(1); }
+function mkEval(id, date, context, sk, sl, sz, se, sp) { return { id, date, context, scores:{ skating:sk, skill:sl, size:sz, sense:se, spirit:sp } }; }
+
+// ── Roster helpers ────────────────────────────────────────────────────────────
+
+function pl(name, pos, yr, hand, ht, gp, g, a, extra="", status="current") {
+  return { name, pos, yr, hand, ht, gp, g, a, extra, status };
+}
+function rp(name, pos, yr, hand, ht) { return pl(name, pos, yr, hand, ht, "", "", "", "", "ref"); }
+function rv(name, pos, yr, hand, ht) { return pl(name, pos, yr, hand, ht, "", "", "", "", "rival"); }
+function op(pos) { return { name:"", pos, yr:"", hand:"", ht:"", gp:"", g:"", a:"", extra:"", status:"open" }; }
+
+// ── MY ROSTER ────────────────────────────────────────────────────────────────
+
+const MY_ROSTER = {
+  label:"'26-'27 Projected",
+  forwards:[
+    pl("D. Bouchard","LW","Jr","L","6'2\"",28,9,13), pl("R. Okafor","C","Jr","R","6'0\"",28,11,17), pl("S. Petrov","RW","Jr","R","5'10\"",28,7,9),
+    pl("C. Walsh","LW","So","L","5'11\"",28,5,8), pl("N. Lindqvist","C","So","L","6'1\"",28,4,11), pl("B. Kowalczyk","RW","So","R","6'0\"",28,6,7),
+    pl("M. Torres","LW","Fr","L","6'0\"",28,3,5), pl("K. Yamamoto","C","Fr","R","5'11\"",28,4,6), pl("L. Brennan","RW","Fr","R","6'1\"",28,2,4),
+    op("LW"), op("C"), op("RW"),
+  ],
+  defense:[
+    pl("F. Marchetti","LD","Jr","L","6'2\"",28,4,9), pl("T. Olsen","RD","So","R","6'1\"",28,1,7),
+    pl("G. Hoffman","LD","Fr","L","6'3\"",28,2,4), pl("R. Sato","RD","Fr","R","6'0\"",28,0,3),
+    op("LD"), op("RD"),
+  ],
+  goalies:[
+    pl("K. Haverford","G","Jr","L","6'2\"",22,"","","2.41 GAA .918"),
+    pl("M. Santos","G","So","L","6'1\"",8,"","","3.12 GAA .901"),
+  ],
+};
+
+// ── BENCHMARK ROSTERS ────────────────────────────────────────────────────────
+
+const BENCHMARK_ROSTERS = [
+  { label:"Cornell 2019-20 ★ (#1 ECAC)", note:"Benchmark: #1 ECAC before COVID — reference for elite forward depth",
+    forwards:[rp("M. Ladue","LW","Sr","L","6'0\""),rp("C. Whelan","C","Jr","L","6'2\""),rp("G. Matheson","RW","Sr","R","5'11\""),rp("T. Parla","LW","Jr","L","6'1\""),rp("B. Norden","C","So","R","6'0\""),rp("A. Carrier","RW","Jr","R","6'2\""),rp("R. Ayers","LW","Sr","L","5'10\""),rp("P. Tondo","C","Jr","L","6'1\""),rp("J. Stevens","RW","So","R","5'11\""),rp("D. Fulton","LW","Fr","L","6'0\""),rp("H. McBain","C","So","R","6'1\""),rp("L. Fafard","RW","Sr","R","6'3\"")],
+    defense:[rp("M. Regula","LD","Jr","L","6'2\""),rp("W. Corson","RD","Sr","R","6'1\""),rp("T. Bristeir","LD","So","L","6'3\""),rp("B. Salo","RD","Jr","R","6'0\""),rp("A. McEneny","LD","Sr","L","6'1\""),rp("C. Petrecki","RD","Jr","R","6'2\"")],
+    goalies:[rp("A. Bjork","G","Jr","L","6'3\""),rp("M. Dowd","G","So","L","6'2\"")],
+  },
+  { label:"Princeton 2017-18 ★ (ECAC Champs)", note:"Benchmark: ECAC Championship — model for two-way play and defensive depth",
+    forwards:[rp("M. Gildon","LW","Sr","L","6'0\""),rp("T. Seeler","C","Sr","L","6'2\""),rp("R. Poturalski","RW","Jr","R","5'10\""),rp("C. Bradley","LW","Jr","L","6'1\""),rp("L. Ferriero","C","So","R","6'0\""),rp("E. Robinson","RW","Jr","R","6'2\""),rp("N. Shea","LW","Sr","L","5'11\""),rp("D. MacKenzie","C","Jr","L","6'1\""),rp("B. Suter","RW","So","R","6'0\""),rp("A. Storjohann","LW","Fr","L","5'11\""),rp("K. Davies","C","So","R","6'0\""),rp("P. Ouellette","RW","Sr","R","6'1\"")],
+    defense:[rp("C. Andonovski","LD","Sr","L","6'2\""),rp("M. Becker","RD","Jr","R","6'1\""),rp("J. Berger","LD","Jr","L","6'3\""),rp("R. Quinlan","RD","So","R","6'0\""),rp("T. Brickley","LD","Sr","L","6'2\""),rp("C. Shea","RD","Jr","R","6'1\"")],
+    goalies:[rp("T. Sarro","G","Jr","L","6'2\""),rp("B. Koven","G","So","L","6'1\"")],
+  },
+];
+
+// ── NESCAC RIVAL ROSTERS (full conference) ───────────────────────────────────
+
+const RIVAL_ROSTERS = [
+  { label:"Middlebury '24-'25", note:"Top NESCAC rival — strong forward depth, heavy BCHL/USHL recruiting overlap",
+    forwards:[rv("A. Fournier","LW","Sr","L","6'1\""),rv("B. Thornton","C","Jr","R","6'0\""),rv("C. Hamill","RW","Sr","R","5'11\""),rv("D. Lacroix","LW","So","L","6'2\""),rv("E. Osei","C","Jr","L","6'1\""),rv("F. Rinaldi","RW","Sr","R","6'0\""),rv("G. Halvorsen","LW","Jr","L","5'10\""),rv("H. Brennan","C","So","R","6'1\""),rv("I. Korhonen","RW","Fr","R","6'0\""),rv("J. Pelletier","LW","Sr","L","6'2\""),rv("K. Morse","C","Jr","L","6'0\""),rv("L. Hansson","RW","So","R","5'11\"")],
+    defense:[rv("M. Trudeau","LD","Sr","L","6'2\""),rv("N. Yablonsky","RD","Jr","R","6'1\""),rv("O. Ferrara","LD","So","L","6'3\""),rv("P. Sundqvist","RD","Jr","R","6'0\""),rv("Q. Lafleur","LD","Sr","L","6'1\""),rv("R. Ashby","RD","So","R","6'2\"")],
+    goalies:[rv("S. Virtanen","G","Jr","L","6'3\""),rv("T. Malone","G","Fr","L","6'2\"")],
+  },
+  { label:"Bowdoin '24-'25", note:"Physical defensive structure — recruits heavily from NAHL, competing for overlapping targets",
+    forwards:[rv("C. Finneran","LW","Sr","L","6'0\""),rv("D. Weston","C","Jr","R","5'11\""),rv("E. Calloway","RW","Sr","R","6'1\""),rv("F. Lindahl","LW","Jr","L","6'2\""),rv("G. Okonkwo","C","So","L","6'0\""),rv("H. Bartels","RW","Jr","R","5'10\""),rv("I. MacDougall","LW","Sr","L","6'1\""),rv("J. Caruso","C","So","R","6'0\""),rv("K. Svensson","RW","Jr","R","6'2\""),rv("L. Pemberton","LW","Fr","L","5'11\""),rv("M. Nakamura","C","So","L","6'1\""),rv("N. Frechette","RW","Sr","R","6'0\"")],
+    defense:[rv("O. Blackwood","LD","Sr","L","6'3\""),rv("P. Renaud","RD","Jr","R","6'1\""),rv("Q. Tamblyn","LD","So","L","6'2\""),rv("R. Johansson","RD","Jr","R","6'0\""),rv("S. Dempsey","LD","Sr","L","6'1\""),rv("T. Nilsson","RD","So","R","6'2\"")],
+    goalies:[rv("U. Bergeron","G","Jr","L","6'2\""),rv("V. Holst","G","Fr","L","6'1\"")],
+  },
+  { label:"Trinity '24-'25", note:"High-scoring forward group — recruiting overlap in USHL and OJHL",
+    forwards:[rv("W. Marchand","LW","Sr","L","6'1\""),rv("X. Delacroix","C","Jr","R","6'0\""),rv("Y. Sullivan","RW","Sr","R","5'11\""),rv("Z. Koivisto","LW","Jr","L","6'2\""),rv("A. Patel","C","So","L","6'0\""),rv("B. Fitzgerald","RW","Jr","R","6'1\""),rv("C. Novak","LW","Sr","L","5'10\""),rv("D. Arsenault","C","So","R","6'1\""),rv("E. Magnusson","RW","Fr","R","6'0\""),rv("F. Belanger","LW","Jr","L","6'2\""),rv("G. Dupont","C","So","L","6'0\""),rv("H. Reilly","RW","Sr","R","5'11\"")],
+    defense:[rv("I. Czarnecki","LD","Sr","L","6'2\""),rv("J. Warwick","RD","Jr","R","6'1\""),rv("K. Fontaine","LD","So","L","6'3\""),rv("L. Hedstrom","RD","Jr","R","6'0\""),rv("M. Tremblay","LD","Sr","L","6'1\""),rv("N. Sousa","RD","So","R","6'2\"")],
+    goalies:[rv("O. Backstrom","G","Jr","L","6'3\""),rv("P. Gaudreau","G","Fr","L","6'2\"")],
+  },
+  { label:"Amherst '24-'25", note:"Academic powerhouse — recruits from prep school circuit heavily",
+    forwards:[rv("Q. Morrison","LW","Sr","L","6'0\""),rv("R. Flaherty","C","Jr","R","6'1\""),rv("S. Vanhanen","RW","Sr","R","5'11\""),rv("T. Oduya","LW","Jr","L","6'2\""),rv("U. Eriksen","C","So","R","6'0\""),rv("V. Deschamps","RW","Jr","L","5'10\""),rv("W. Bergmann","LW","Sr","L","6'1\""),rv("X. Nakashima","C","So","R","6'0\""),rv("Y. O'Brien","RW","Fr","R","6'2\""),rv("Z. Lindberg","LW","Jr","L","5'11\""),rv("A. Carrasco","C","So","L","6'1\""),rv("B. Gustafsson","RW","Sr","R","6'0\"")],
+    defense:[rv("C. Bondar","LD","Sr","L","6'3\""),rv("D. Pelletier","RD","Jr","R","6'1\""),rv("E. Nystrom","LD","So","L","6'2\""),rv("F. Kowalski","RD","Jr","R","6'0\""),rv("G. Lemaire","LD","Sr","L","6'1\""),rv("H. Sorensen","RD","So","R","6'2\"")],
+    goalies:[rv("I. Hakala","G","Jr","L","6'2\""),rv("J. Rousseau","G","Fr","L","6'1\"")],
+  },
+  { label:"Hamilton '24-'25", note:"Strong defensive system — CCHL and OJHL recruiting pipeline",
+    forwards:[rv("K. Sundstrom","LW","Sr","L","6'1\""),rv("L. McAllister","C","Jr","R","6'0\""),rv("M. Pettersson","RW","Sr","R","5'10\""),rv("N. Girard","LW","Jr","L","6'2\""),rv("O. Tanaka","C","So","R","6'1\""),rv("P. Boutin","RW","Jr","L","6'0\""),rv("Q. Henriksson","LW","Sr","L","5'11\""),rv("R. Fitzgerald","C","So","R","6'1\""),rv("S. Aalto","RW","Fr","R","6'0\""),rv("T. Cloutier","LW","Jr","L","6'2\""),rv("U. Bergstrom","C","So","L","6'0\""),rv("V. Mackenzie","RW","Sr","R","5'11\"")],
+    defense:[rv("W. Karlsson","LD","Sr","L","6'2\""),rv("X. Benoit","RD","Jr","R","6'1\""),rv("Y. Leinonen","LD","So","L","6'3\""),rv("Z. Duplessis","RD","Jr","R","6'0\""),rv("A. Forsberg","LD","Sr","L","6'1\""),rv("B. Tran","RD","So","R","6'2\"")],
+    goalies:[rv("C. Nieminen","G","Jr","L","6'3\""),rv("D. Bilodeau","G","Fr","L","6'2\"")],
+  },
+  { label:"Colby '24-'25", note:"Gritty two-way style — NAHL and USHL overlap, known for physical play",
+    forwards:[rv("E. Magnusson","LW","Sr","L","6'0\""),rv("F. Arsenault","C","Jr","R","5'11\""),rv("G. Korhonen","RW","Sr","R","6'1\""),rv("H. Lapointe","LW","Jr","L","6'2\""),rv("I. Watanabe","C","So","R","6'0\""),rv("J. Chartrand","RW","Jr","L","5'10\""),rv("K. Holmberg","LW","Sr","L","6'1\""),rv("L. Duchesne","C","So","R","6'0\""),rv("M. Saarinen","RW","Fr","R","6'2\""),rv("N. Gosselin","LW","Jr","L","5'11\""),rv("O. Bergqvist","C","So","L","6'1\""),rv("P. Hawkins","RW","Sr","R","6'0\"")],
+    defense:[rv("Q. Salonen","LD","Sr","L","6'2\""),rv("R. Lavoie","RD","Jr","R","6'1\""),rv("S. Kivinen","LD","So","L","6'3\""),rv("T. Beauchamp","RD","Jr","R","6'0\""),rv("U. Rantanen","LD","Sr","L","6'1\""),rv("V. Caron","RD","So","R","6'2\"")],
+    goalies:[rv("W. Koivunen","G","Jr","L","6'2\""),rv("X. Gagnon","G","Fr","L","6'1\"")],
+  },
+  { label:"Wesleyan '24-'25", note:"Undersized but skilled — creative offensive forwards, BCHL feeders",
+    forwards:[rv("Y. Picard","LW","Sr","L","5'11\""),rv("Z. Lindqvist","C","Jr","R","5'10\""),rv("A. Thibodeau","RW","Sr","R","6'0\""),rv("B. Salminen","LW","Jr","L","6'1\""),rv("C. Anttila","C","So","R","5'11\""),rv("D. Dufour","RW","Jr","L","6'0\""),rv("E. Lehtinen","LW","Sr","L","5'10\""),rv("F. Pelland","C","So","R","6'1\""),rv("G. Ahonen","RW","Fr","R","5'11\""),rv("H. Turgeon","LW","Jr","L","6'0\""),rv("I. Laukkanen","C","So","L","6'1\""),rv("J. Racine","RW","Sr","R","5'10\"")],
+    defense:[rv("K. Koskela","LD","Sr","L","6'1\""),rv("L. Patenaude","RD","Jr","R","6'0\""),rv("M. Heikkinen","LD","So","L","6'2\""),rv("N. Gervais","RD","Jr","R","6'1\""),rv("O. Makinen","LD","Sr","L","6'0\""),rv("P. Houle","RD","So","R","6'1\"")],
+    goalies:[rv("Q. Viitanen","G","Jr","L","6'1\""),rv("R. Bellemare","G","Fr","L","6'2\"")],
+  },
+  { label:"Tufts '24-'25", note:"Growing program — improving each year, recruiting from NAHL and CCHL",
+    forwards:[rv("S. Makela","LW","Sr","L","6'0\""),rv("T. Chouinard","C","Jr","R","6'1\""),rv("U. Blais","RW","Sr","R","5'11\""),rv("V. Korhonen","LW","Jr","L","6'0\""),rv("W. Siltala","C","So","R","6'2\""),rv("X. Boudreau","RW","Jr","L","5'11\""),rv("Y. Hamalainen","LW","Sr","L","6'1\""),rv("Z. Marcotte","C","So","R","6'0\""),rv("A. Virtanen","RW","Fr","R","6'1\""),rv("B. Leblanc","LW","Jr","L","5'10\""),rv("C. Tuominen","C","So","L","6'1\""),rv("D. Poirier","RW","Sr","R","6'0\"")],
+    defense:[rv("E. Rinne","LD","Sr","L","6'2\""),rv("F. Lariviere","RD","Jr","R","6'1\""),rv("G. Niskanen","LD","So","L","6'3\""),rv("H. Rondeau","RD","Jr","R","6'0\""),rv("I. Pakarinen","LD","Sr","L","6'1\""),rv("J. Desrochers","RD","So","R","6'2\"")],
+    goalies:[rv("K. Matikainen","G","Jr","L","6'2\""),rv("L. Tanguay","G","Fr","L","6'1\"")],
+  },
+  { label:"Bates '24-'25", note:"Scrappy program on the rise — Maine-based, recruits locally and from CCHL",
+    forwards:[rv("M. Virolainen","LW","Sr","L","6'0\""),rv("N. Robichaud","C","Jr","R","5'11\""),rv("O. Kallinen","RW","Sr","R","6'1\""),rv("P. Ouellet","LW","Jr","L","6'2\""),rv("Q. Laine","C","So","R","6'0\""),rv("R. Gauthier","RW","Jr","L","5'11\""),rv("S. Pesonen","LW","Sr","L","6'1\""),rv("T. Beaulieu","C","So","R","6'0\""),rv("U. Koivisto","RW","Fr","R","6'2\""),rv("V. Labbe","LW","Jr","L","5'11\""),rv("W. Mikkola","C","So","L","6'1\""),rv("X. Fortin","RW","Sr","R","6'0\"")],
+    defense:[rv("Y. Leinonen","LD","Sr","L","6'2\""),rv("Z. Laplante","RD","Jr","R","6'1\""),rv("A. Saarinen","LD","So","L","6'3\""),rv("B. Masse","RD","Jr","R","6'0\""),rv("C. Ojanen","LD","Sr","L","6'1\""),rv("D. Belanger","RD","So","R","6'2\"")],
+    goalies:[rv("E. Rasanen","G","Jr","L","6'2\""),rv("F. Lachance","G","Fr","L","6'1\"")],
+  },
+  { label:"Connecticut College '24-'25", note:"Smaller program but improving — New London CT, NESCAC newcomer in hockey",
+    forwards:[rv("G. Hakkinen","LW","Sr","L","5'11\""),rv("H. Morin","C","Jr","R","6'0\""),rv("I. Sihvonen","RW","Sr","R","5'10\""),rv("J. Dupuis","LW","Jr","L","6'1\""),rv("K. Ojala","C","So","R","5'11\""),rv("L. Briere","RW","Jr","L","6'0\""),rv("M. Niemi","LW","Sr","L","5'10\""),rv("N. Thibault","C","So","R","6'1\""),rv("O. Partanen","RW","Fr","R","5'11\""),rv("P. Gauvin","LW","Jr","L","6'0\""),rv("Q. Koskinen","C","So","L","5'11\""),rv("R. Vallee","RW","Sr","R","6'0\"")],
+    defense:[rv("S. Toivonen","LD","Sr","L","6'1\""),rv("T. Leclerc","RD","Jr","R","6'0\""),rv("U. Laitinen","LD","So","L","6'2\""),rv("V. Allard","RD","Jr","R","6'1\""),rv("W. Niinimaki","LD","Sr","L","6'0\""),rv("X. Bergeron","RD","So","R","6'1\"")],
+    goalies:[rv("Y. Korhonen","G","Jr","L","6'1\""),rv("Z. Paquette","G","Fr","L","6'2\"")],
+  },
+];
+
+// ── Trending feed data ────────────────────────────────────────────────────────
+
+const TRENDING_PIPELINE = [
+  { id:"t1", name:"Dmitri Volkov", pos:"LW", league:"CCHL", team:"Carleton Place", age:20, weekend:"2G 1A vs. Kingston", availability:"Available", onBoard:true },
+  { id:"t2", name:"Ryan Kowalski", pos:"G", league:"OJHL", team:"Georgetown Raiders", age:19, weekend:"39 saves .951 SV%", availability:"Available", onBoard:true },
+  { id:"t3", name:"Connor Halverson", pos:"LW", league:"USHL", team:"Sioux City", age:18, weekend:"3G 1A in 2 games", availability:"Available", onBoard:true },
+];
+
+const TRENDING_LEAGUE = [
+  { id:"l1", name:"M. Johansson", pos:"C", league:"USHL", team:"Tri-City Storm", age:18, weekend:"4G 2A — hat trick Fri", availability:"Available", onBoard:false },
+  { id:"l2", name:"P. Marchand", pos:"RW", league:"BCHL", team:"Penticton Vees", age:19, weekend:"2G 3A over weekend", availability:"Unknown", onBoard:false },
+  { id:"l3", name:"A. Kovalenko", pos:"LD", league:"NAHL", team:"Amarillo Bulls", age:18, weekend:"+3 rating, 4 blocked shots", availability:"Available", onBoard:false },
+  { id:"l4", name:"T. Bergqvist", pos:"C", league:"CCHL", team:"Carleton Place", age:19, weekend:"5A in 2 games", availability:"Committed", onBoard:false },
+  { id:"l5", name:"J. Okafor", pos:"RW", league:"OJHL", team:"Oakville Blades", age:18, weekend:"2G 1A, strong compete", availability:"Available", onBoard:false },
+  { id:"l6", name:"N. Petrov", pos:"LW", league:"USHL", team:"Fargo Force", age:18, weekend:"2G 2A Fri/Sat sweep", availability:"Unknown", onBoard:false },
+];
+
+// ── Pipeline prospects (30 identified, 15 contacted, 8 building, 3 offer) ──────
+
+function mkP(id, name, pos, league, team, age, gp, g, a, ht, wt, evals, note, tier, messages, nudge, notes) {
+  return { id, name, pos, league, team, age, gp, g, a, height:ht, weight:wt, evals, note, tier, messages, nudge, notes };
+}
+
+const INITIAL_PROSPECTS = {
+  identified: [
+    mkP(1,"Connor Halverson","LW","USHL","Sioux City Musketeers",18,42,18,24,"6'1\"","190",[mkEval("e1","Oct 12","USHL Fall Classic",4,4,3,4,4),mkEval("e2","Jan 18","Sioux City vs. Waterloo",4,4,3,5,4)],"Strong two-way forward, good compete level","A",[],null,[]),
+    mkP(2,"Marcus Leblanc","D","BCHL","Penticton Vees",19,38,5,19,"6'2\"","205",[mkEval("e1","Nov 3","BCHL showcase",3,3,5,4,4)],"Big shutdown D, needs work on breakout","B",[],null,[]),
+    mkP(3,"Jake Torresi","C","NAHL","Lone Star Brahmas",18,44,22,31,"5'10\"","175",[mkEval("e1","Sep 28","NAHL Showcase",5,4,2,4,3),mkEval("e2","Dec 7","Lone Star home game",5,5,2,5,3),mkEval("e3","Feb 15","Robertson Cup run",5,5,3,5,4)],"Elite skill trending up — weight gain visible this winter","A",[],null,[{id:"n1",text:"Spoke to billet family — up 8 lbs since September. Gym every morning.",date:"Feb 20, 2025",time:"11:30am"},{id:"n2",text:"Coach Thibodeau confirmed uncommitted, very interested in academic schools.",date:"Jan 10, 2025",time:"3:15pm"}]),
+    mkP(4,"A. Gallagher","RW","USHL","Waterloo Black Hawks",18,40,14,16,"6'0\"","185",[mkEval("e1","Nov 1","USHL game",3,4,3,3,4)],"Physical winger, strong on puck","B",[],null,[]),
+    mkP(5,"T. Hakanen","C","BCHL","Salmon Arm Silverbacks",18,36,11,19,"5'11\"","178",[mkEval("e1","Oct 20","BCHL showcase",4,4,2,4,3)],"Smart playmaker, undersized but high IQ","B",[],null,[]),
+    mkP(6,"L. Beauregard","LW","CCHL","Smiths Falls Bears",19,38,16,18,"6'1\"","186",[mkEval("e1","Dec 1","CCHL game",4,3,3,4,4)],"Late bloomer — getting better each month","B",[],null,[]),
+    mkP(7,"P. Nieminen","D","NAHL","New Mexico Ice Wolves",18,42,4,12,"6'3\"","210",[mkEval("e1","Oct 5","NAHL Showcase",3,3,5,4,3)],"Huge body, raw but projectable","B",[],null,[]),
+    mkP(8,"S. Korhonen","RW","OJHL","Oakville Blades",18,35,9,14,"5'10\"","175",[mkEval("e1","Nov 15","OJHL game",4,4,2,3,4)],"Quick and shifty, needs to add weight","B",[],null,[]),
+    mkP(9,"M. Virtanen","C","USHL","Fargo Force",18,38,12,20,"6'0\"","180",[mkEval("e1","Sep 15","USHL opener",4,4,3,4,3)],"Good all-around center, nothing elite","B",[],null,[]),
+    mkP(10,"K. Laukkanen","LD","CCHL","Carleton Place Canadians",19,40,5,14,"6'2\"","200",[mkEval("e1","Oct 8","CCHL showcase",4,3,4,4,4)],"Mobile defenseman, good first pass","B",[],null,[]),
+    mkP(11,"R. Bergstrom","RW","BCHL","Vernon Vipers",18,32,8,11,"6'1\"","183",[mkEval("e1","Dec 5","BCHL game",3,3,3,3,4)],"Toolsy but inconsistent","C",[],null,[]),
+    mkP(12,"F. Lapointe","C","NAHL","Lone Star Brahmas",18,41,10,17,"5'11\"","177",[mkEval("e1","Jan 5","NAHL game",3,4,2,4,3)],"Smart player, not a difference maker yet","C",[],null,[]),
+    mkP(13,"H. Saarinen","D","OJHL","Georgetown Raiders",19,37,2,9,"6'1\"","198",[mkEval("e1","Nov 20","OJHL game",3,3,4,3,3)],"Solid shutdown D, limited offensively","C",[],null,[]),
+    mkP(14,"J. Picard","LW","USHL","Sioux City Musketeers",18,42,7,10,"5'11\"","179",[mkEval("e1","Oct 22","USHL game",3,3,3,3,3)],"Steady but needs to compete harder","C",[],null,[]),
+    mkP(15,"N. Aalto","RW","CCHL","Ottawa Jr. Senators",18,33,6,8,"6'0\"","181",[mkEval("e1","Dec 12","CCHL game",3,3,3,3,3)],"Decent skater, low shot volume","C",[],null,[]),
+    mkP(16,"O. Makinen","C","BCHL","Penticton Vees",19,35,9,15,"6'1\"","184",[mkEval("e1","Nov 8","BCHL showcase",3,4,3,4,3)],"Reliable center, nothing flashy","C",[],null,[]),
+    mkP(17,"Q. Tuominen","D","NAHL","Amarillo Bulls",18,40,3,10,"6'2\"","202",[mkEval("e1","Oct 15","NAHL game",3,3,4,3,3)],"Big frame, reads plays slowly","C",[],null,[]),
+    mkP(18,"A. Heikkinen","LW","OJHL","Mississauga Chargers",18,36,8,9,"6'0\"","180",[mkEval("e1","Jan 9","OJHL game",3,3,3,3,4)],"High energy but raw","C",[],null,[]),
+    mkP(19,"B. Mikkola","RW","USHL","Waterloo Black Hawks",18,39,6,9,"5'11\"","176",[mkEval("e1","Dec 3","USHL game",3,3,2,3,3)],"Needs a standout game to stay on board","C",[],null,[]),
+    mkP(20,"C. Leinonen","C","CCHL","Carleton Place Canadians",19,37,8,13,"5'11\"","179",[mkEval("e1","Nov 25","CCHL game",3,3,2,4,3)],"Smart but small — size concern at D3","C",[],null,[]),
+    mkP(21,"D. Siltala","D","BCHL","Salmon Arm Silverbacks",18,34,2,8,"6'3\"","208",[mkEval("e1","Oct 18","BCHL showcase",3,2,5,3,3)],"Big body, footwork needs work","C",[],null,[]),
+    mkP(22,"E. Koivisto","G","OJHL","Georgetown Raiders",18,28,0,1,"6'2\"","190",[mkEval("e1","Nov 28","OJHL game",3,3,4,3,4)],"GAA 3.10 .908 — needs better camp data","C",[],null,[]),
+    mkP(23,"G. Forsberg","LW","NAHL","Shreveport Mudbugs",18,38,7,9,"6'1\"","184",[mkEval("e1","Dec 8","NAHL game",3,3,3,3,3)],"New to watch list — flagged by scout","C",[],null,[]),
+    mkP(24,"H. Sundstrom","C","USHL","Tri-City Storm",18,40,9,14,"5'10\"","175",[mkEval("e1","Jan 15","USHL game",3,4,2,4,3)],"Crafty center, size is the issue","C",[],null,[]),
+    mkP(25,"I. Rantanen","RW","CCHL","Smith Falls Bears",19,35,7,10,"6'0\"","182",[mkEval("e1","Oct 30","CCHL game",3,3,3,3,3)],"Fringy at this stage","C",[],null,[]),
+    mkP(26,"J. Niskanen","LD","BCHL","Vernon Vipers",18,33,1,6,"6'2\"","199",[mkEval("e1","Dec 15","BCHL game",3,2,4,3,3)],"Raw but projectable blue line size","C",[],null,[]),
+    mkP(27,"K. Pakarinen","C","OJHL","Aurora Tigers",18,36,6,11,"5'11\"","178",[mkEval("e1","Nov 5","OJHL game",3,3,2,4,3)],"Good hockey IQ, very small","C",[],null,[]),
+    mkP(28,"L. Gustafsson","RW","USHL","Fargo Force",18,41,8,12,"6'1\"","183",[mkEval("e1","Jan 22","USHL game",3,3,3,3,3)],"Steady but nothing jumps out","C",[],null,[]),
+    mkP(29,"M. Tikkanen","D","NAHL","Corpus Christi IceRays",19,39,2,7,"6'2\"","201",[mkEval("e1","Dec 20","NAHL game",2,3,4,3,3)],"Needs another viewing before decision","C",[],null,[]),
+    mkP(30,"N. Lehkonen","LW","CCHL","Pembroke Lumber Kings",18,34,5,7,"6'0\"","180",[mkEval("e1","Jan 28","CCHL game",3,3,3,3,3)],"Added to board after showcase tip","C",[],null,[]),
+  ],
+  contacted: [
+    mkP(101,"Ryan Kowalski","G","OJHL","Georgetown Raiders",19,30,0,2,"6'3\"","195",[mkEval("e1","Oct 19","OJHL showcase",4,4,4,4,5),mkEval("e2","Jan 25","Georgetown vs. Aurora",4,4,4,4,5)],"GAA 2.41 SV% .921 — very coachable","A",[{id:1,from:"coach",text:"Hey Ryan, Coach Davis here. Loved watching you against Guelph — would love to hop on a quick call this week. When works?",time:"Mon 9:14am"},{id:2,from:"prospect",text:"Hey Coach! Thursday afternoon works great, anytime after 3pm",time:"Mon 11:32am"},{id:3,from:"coach",text:"Perfect — Thursday at 4pm. Looking forward to it.",time:"Mon 11:45am"}],null,[{id:"n1",text:"Great call Thursday. Very mature for 19. Academic interest in econ/finance — good Williams fit. Wants to visit in April.",date:"Mar 21, 2025",time:"4:45pm"}]),
+    mkP(102,"Tyler Bergstrom","RW","USHL","Waterloo Black Hawks",18,40,14,18,"6'0\"","185",[mkEval("e1","Nov 9","USHL game",4,3,3,3,4)],"Power forward, below avg hands","B",[{id:1,from:"coach",text:"Tyler — Coach Davis. Big fan of how you battle along the boards. Would love to connect.",time:"Tue 8:55am"}],"Jun 2025",[]),
+    mkP(103,"P. Sundqvist","LD","BCHL","Vernon Vipers",19,36,4,13,"6'2\"","197",[mkEval("e1","Oct 25","BCHL showcase",4,3,4,4,3),mkEval("e2","Jan 12","Vernon home game",4,3,4,4,4)],"Mobile puck-moving D, trending up","A",[{id:1,from:"coach",text:"Hey Patrick, Coach Davis from Williams. Watched you twice this year — exactly the type of D we're looking for.",time:"Feb 1, 9:00am"},{id:2,from:"prospect",text:"Thanks Coach! Would love to learn more about Williams.",time:"Feb 1, 11:30am"}],null,[{id:"n1",text:"Strong academic record per BCHL coach. GPA 3.7. Will fit Williams admissions profile.",date:"Feb 3, 2025",time:"8:45am"}]),
+    mkP(104,"A. Lehtinen","C","NAHL","Lone Star Brahmas",18,42,13,21,"6'1\"","182",[mkEval("e1","Dec 1","NAHL showcase",4,4,3,4,3)],"Two-way center, good in his own zone","B",[{id:1,from:"coach",text:"Hey Alex, saw you last weekend vs. Corpus — really liked your compete level. Worth a quick call.",time:"Jan 20, 8:30am"}],null,[]),
+    mkP(105,"C. Makela","RW","CCHL","Ottawa Jr. Senators",19,38,12,15,"5'11\"","180",[mkEval("e1","Nov 14","CCHL game",3,4,2,4,4)],"Crafty winger, explosive skater","B",[{id:1,from:"coach",text:"Chris — Coach Davis from Williams. Caught you vs. Carleton Place. Quick hands, love the compete.",time:"Feb 5, 9:15am"},{id:2,from:"prospect",text:"Thank you so much Coach! Williams is definitely on my list.",time:"Feb 5, 1:00pm"}],"Sep 2025",[]),
+    mkP(106,"D. Koivunen","D","OJHL","Mississauga Chargers",18,37,3,11,"6'3\"","206",[mkEval("e1","Oct 30","OJHL showcase",4,3,5,3,4)],"Big stay-at-home D, good instincts","A",[{id:1,from:"coach",text:"Hey Dan, Coach Davis. Watched your last three games — great feet for a big D. Can we connect?",time:"Jan 28, 8:00am"}],null,[]),
+    mkP(107,"E. Hakala","C","USHL","Sioux City Musketeers",18,41,9,19,"6'0\"","183",[mkEval("e1","Sep 22","USHL opener",3,4,3,4,3)],"High-IQ center, needs to shoot more","B",[{id:1,from:"coach",text:"Eric — Coach Davis. Big fan of your hockey sense. Interested in talking?",time:"Feb 10, 9:00am"},{id:2,from:"prospect",text:"Absolutely Coach, I'd love that!",time:"Feb 10, 12:00pm"}],null,[]),
+    mkP(108,"F. Bergqvist","LW","BCHL","Penticton Vees",19,35,11,13,"6'1\"","187",[mkEval("e1","Nov 22","BCHL showcase",3,3,3,4,4)],"Work-rate winger, not flashy but reliable","B",[{id:1,from:"coach",text:"Filip, Coach Davis here. Liked what I saw vs. Vernon. Would love to connect.",time:"Jan 15, 9:30am"}],"May 2025",[]),
+    mkP(109,"G. Aalto","D","CCHL","Carleton Place Canadians",19,40,5,10,"6'2\"","199",[mkEval("e1","Dec 8","CCHL showcase",4,3,4,4,3)],"Good gap control, smart positional D","B",[{id:1,from:"coach",text:"Gunnar — watched your CCHL showcase tape. Really liked the hockey IQ. Free for a call?",time:"Feb 3, 10:00am"},{id:2,from:"prospect",text:"Hi Coach! Yes definitely, how about Thursday?",time:"Feb 3, 2:00pm"}],null,[{id:"n1",text:"Mentioned Williams is his top choice academically. Very motivated student.",date:"Feb 6, 2025",time:"11:00am"}]),
+    mkP(110,"H. Picard","RW","NAHL","Amarillo Bulls",18,39,10,12,"6'0\"","184",[mkEval("e1","Nov 5","NAHL showcase",3,3,3,3,4)],"Grinding winger, character player","C",[{id:1,from:"coach",text:"Henri — Coach Davis from Williams. Saw you vs. Lone Star. Big fan of how hard you work.",time:"Jan 25, 9:00am"}],null,[]),
+    mkP(111,"I. Saarinen","G","OJHL","Aurora Tigers",19,26,0,1,"6'2\"","191",[mkEval("e1","Oct 12","OJHL game",3,4,3,4,4)],"GAA 2.68 .914 — solid but needs more data","B",[{id:1,from:"coach",text:"Ilmari — Coach Davis. Watched your last two starts. Impressive composure. Worth talking?",time:"Feb 8, 9:15am"}],null,[]),
+    mkP(112,"J. Virtanen","C","BCHL","Salmon Arm Silverbacks",18,36,8,14,"5'11\"","176",[mkEval("e1","Dec 3","BCHL game",3,3,2,4,3)],"Smart but small — flagged for revisit","C",[{id:1,from:"coach",text:"Joonas — Coach Davis. Quick note — you showed up twice in scouting reports this month. Like what I see.",time:"Jan 30, 8:45am"},{id:2,from:"prospect",text:"Thank you Coach, means a lot!",time:"Jan 30, 11:00am"}],"Aug 2025",[]),
+    mkP(113,"K. Lariviere","LD","USHL","Tri-City Storm",18,40,3,9,"6'2\"","198",[mkEval("e1","Nov 18","USHL game",3,3,4,3,3)],"Steady D, projects as a third pair guy","C",[{id:1,from:"coach",text:"Kyle — Coach Davis from Williams. Liked your USHL tape. Interested in talking?",time:"Feb 12, 9:00am"}],null,[]),
+    mkP(114,"L. Thibodeau","RW","CCHL","Smith Falls Bears",19,37,9,11,"6'1\"","185",[mkEval("e1","Dec 10","CCHL game",3,3,3,3,3)],"Energy winger, needs to improve hands","C",[{id:1,from:"coach",text:"Luc — Coach Davis. Catching you vs. Carleton Place next week. Looking forward to it.",time:"Feb 14, 8:30am"}],null,[]),
+    mkP(115,"M. Korhonen","D","NAHL","Shreveport Mudbugs",18,41,2,8,"6'2\"","200",[mkEval("e1","Jan 8","NAHL game",3,2,4,3,3)],"Raw but has the frame — long-term project","C",[{id:1,from:"coach",text:"Mikko — Coach Davis from Williams. Worth a conversation when you have time.",time:"Feb 16, 9:00am"}],null,[]),
+  ],
+  building: [
+    mkP(201,"Dmitri Volkov","LW","CCHL","Carleton Place Canadians",20,36,29,33,"5'11\"","180",[mkEval("e1","Sep 14","CCHL opener",4,4,3,4,4),mkEval("e2","Nov 22","CCHL showcase",5,5,3,4,4),mkEval("e3","Feb 1","Carleton Place playoffs",5,5,3,5,4)],"Campus visit scheduled March 28 — trending up all season","A",[{id:1,from:"coach",text:"Hey Dmitri, Coach Davis. Watched your last 3 games — exactly what we're looking for.",time:"Feb 3, 9:02am"},{id:2,from:"prospect",text:"Coach Davis! Yes absolutely — I'd love to talk.",time:"Feb 3, 2:17pm"},{id:3,from:"coach",text:"Friday or Thursday work?",time:"Feb 3, 2:45pm"},{id:4,from:"prospect",text:"Friday works. Free after 5pm EST",time:"Feb 3, 3:10pm"},{id:5,from:"coach",text:"Perfect. Talk Friday 5:30.",time:"Feb 3, 3:14pm"}],null,[{id:"n1",text:"Agent: Stepan Kozlov in Ottawa. Very responsive. Dmitri's priority is academics — Williams' rep is a real selling point.",date:"Feb 5, 2025",time:"9:00am"},{id:"n2",text:"Campus visit confirmed March 28. Wants to meet econ faculty — set that up.",date:"Feb 18, 2025",time:"2:30pm"}]),
+    mkP(202,"Q. Lindqvist","C","BCHL","Vernon Vipers",19,38,17,22,"6'0\"","183",[mkEval("e1","Oct 5","BCHL showcase",4,4,3,4,3),mkEval("e2","Dec 18","Vernon home game",4,4,3,5,4)],"Intelligent center, strong leadership qualities","A",[{id:1,from:"coach",text:"Quinn, Coach Davis. Love your two-way game. Can we get on a call this week?",time:"Jan 10, 9:00am"},{id:2,from:"prospect",text:"Yes Coach, how about Wednesday?",time:"Jan 10, 11:00am"},{id:3,from:"coach",text:"Wednesday at 4pm perfect.",time:"Jan 10, 11:30am"},{id:4,from:"prospect",text:"Great! Excited to learn more about Williams.",time:"Jan 10, 11:35am"}],null,[{id:"n1",text:"Great call. Captain of his team. Academic interest in econ. Strong fit all around.",date:"Jan 13, 2025",time:"3:00pm"}]),
+    mkP(203,"R. Koistinen","D","OJHL","Aurora Tigers",19,37,6,16,"6'2\"","200",[mkEval("e1","Nov 1","OJHL showcase",4,3,4,4,4),mkEval("e2","Jan 20","Aurora playoff run",4,4,4,5,4)],"Smart offensive D, good PP QB","A",[{id:1,from:"coach",text:"Riku — Coach Davis. Your OJHL tape is exactly what we need on our blue line.",time:"Jan 5, 9:30am"},{id:2,from:"prospect",text:"Coach, I've heard great things about Williams. Very interested.",time:"Jan 5, 1:00pm"},{id:3,from:"coach",text:"Let's set up a call. This week work?",time:"Jan 5, 1:30pm"},{id:4,from:"prospect",text:"Thursday works great Coach.",time:"Jan 5, 2:00pm"},{id:5,from:"coach",text:"Thursday at 5pm. Looking forward to it.",time:"Jan 5, 2:10pm"}],null,[{id:"n1",text:"Dad played D3 at RPI. Family very familiar with D3 hockey culture.",date:"Jan 9, 2025",time:"10:00am"}]),
+    mkP(204,"S. Manninen","LW","USHL","Tri-City Storm",18,41,16,18,"6'1\"","186",[mkEval("e1","Sep 28","USHL opener",4,4,3,3,4),mkEval("e2","Dec 14","Tri-City showcase",4,4,3,4,5)],"High-motor winger, competes every shift","B",[{id:1,from:"coach",text:"Sami — Coach Davis from Williams. Your compete level is exactly what we look for.",time:"Jan 18, 9:00am"},{id:2,from:"prospect",text:"Thank you Coach, Williams has always interested me.",time:"Jan 18, 12:00pm"},{id:3,from:"coach",text:"Good — can we set up a call?",time:"Jan 18, 12:30pm"},{id:4,from:"prospect",text:"Absolutely, any day this week.",time:"Jan 18, 12:45pm"}],"Dec 2025",[]),
+    mkP(205,"T. Hakkarainen","G","CCHL","Ottawa Jr. Senators",19,30,0,2,"6'3\"","193",[mkEval("e1","Oct 22","CCHL showcase",4,4,4,4,5),mkEval("e2","Feb 5","Ottawa home game",4,4,4,5,5)],"GAA 2.28 .924 — quietly one of the best goalie prospects in CCHL","A",[{id:1,from:"coach",text:"Tuomas — Coach Davis. Watched three of your starts. Outstanding.",time:"Jan 22, 9:00am"},{id:2,from:"prospect",text:"Coach Davis! Yes, would love to talk!",time:"Jan 22, 11:00am"},{id:3,from:"coach",text:"Great — Friday at 4pm?",time:"Jan 22, 11:30am"},{id:4,from:"prospect",text:"Perfect.",time:"Jan 22, 11:45am"}],null,[{id:"n1",text:"Academic record strong — 3.9 GPA. Playing junior specifically to land an academic D3 school.",date:"Jan 25, 2025",time:"2:00pm"}]),
+    mkP(206,"U. Koivunen","RW","BCHL","Salmon Arm Silverbacks",19,35,12,14,"6'1\"","185",[mkEval("e1","Nov 8","BCHL showcase",3,4,3,4,4),mkEval("e2","Jan 30","Salmon Arm home game",4,4,3,4,4)],"Improving every month — real upward trend","B",[{id:1,from:"coach",text:"Urho — Coach Davis. Two viewings now and you keep getting better.",time:"Feb 1, 9:00am"},{id:2,from:"prospect",text:"Thanks Coach! Really working hard this year.",time:"Feb 1, 10:00am"},{id:3,from:"coach",text:"It shows. Can we get on a call?",time:"Feb 1, 10:30am"},{id:4,from:"prospect",text:"Yes, this weekend works.",time:"Feb 1, 11:00am"}],null,[]),
+    mkP(207,"V. Laaksonen","C","NAHL","Corpus Christi IceRays",18,42,14,20,"5'11\"","179",[mkEval("e1","Oct 15","NAHL showcase",4,4,2,5,3),mkEval("e2","Feb 10","Corpus Christi home game",4,4,3,5,4)],"Elite hockey sense, size the only question","A",[{id:1,from:"coach",text:"Ville — Coach Davis. Your hockey IQ is off the charts.",time:"Jan 28, 9:00am"},{id:2,from:"prospect",text:"Coach, Williams has been on my radar for a while!",time:"Jan 28, 10:00am"},{id:3,from:"coach",text:"Let's talk. Tuesday at 5?",time:"Jan 28, 10:30am"},{id:4,from:"prospect",text:"Perfect.",time:"Jan 28, 10:45am"},{id:5,from:"coach",text:"Great call Tuesday — campus visit in the works.",time:"Feb 4, 9:00am"},{id:6,from:"prospect",text:"Looking forward to it!",time:"Feb 4, 10:00am"}],null,[{id:"n1",text:"NAHL coach called proactively — said Ville is the smartest player he's coached in 10 years.",date:"Feb 2, 2025",time:"3:30pm"}]),
+    mkP(208,"W. Soininen","D","OJHL","Mississauga Chargers",19,38,4,14,"6'2\"","202",[mkEval("e1","Nov 3","OJHL showcase",3,3,4,4,4),mkEval("e2","Jan 18","Mississauga home game",4,3,4,4,4)],"Reliable two-way D, improving each month","B",[{id:1,from:"coach",text:"Waltteri — Coach Davis. Two viewings in and you're exactly the D profile we're recruiting.",time:"Jan 20, 9:00am"},{id:2,from:"prospect",text:"Thank you Coach! Really excited to hear from you.",time:"Jan 20, 11:00am"},{id:3,from:"coach",text:"Let's connect this week.",time:"Jan 20, 11:30am"},{id:4,from:"prospect",text:"Thursday afternoon works.",time:"Jan 20, 12:00pm"}],"Mar 2026",[]),
+  ],
+  offer: [
+    mkP(301,"Ben Ashworth","D","NAHL","New Mexico Ice Wolves",19,42,8,22,"6'1\"","198",[mkEval("e1","Oct 5","NAHL Showcase",4,4,4,4,5),mkEval("e2","Dec 14","New Mexico home game",4,4,4,5,5)],"Committed — waiting on paperwork","A",[{id:1,from:"coach",text:"Ben — Coach Davis. So excited about the offer!",time:"Mar 1, 8:30am"},{id:2,from:"prospect",text:"I'm thrilled. Williams has been a dream.",time:"Mar 1, 9:15am"},{id:3,from:"coach",text:"Take your time. We're here for any questions.",time:"Mar 1, 9:20am"},{id:4,from:"prospect",text:"Coach — I'm committing to Williams! Super excited 🎉",time:"Mar 8, 4:02pm"},{id:5,from:"coach",text:"BEN!! Welcome to the family!",time:"Mar 8, 4:05pm"}],null,[{id:"n1",text:"Parents very involved — his dad played D3 at Plattsburgh. Include them in all communication.",date:"Feb 28, 2025",time:"10:00am"}]),
+    mkP(302,"X. Niemela","C","BCHL","Penticton Vees",19,39,18,24,"6'0\"","185",[mkEval("e1","Oct 15","BCHL showcase",4,4,3,5,4),mkEval("e2","Jan 8","Penticton home game",5,4,3,5,4),mkEval("e3","Feb 20","BCHL playoffs",5,5,3,5,5)],"Offer accepted — elite playmaker, best center in this class","A",[{id:1,from:"coach",text:"Xander — offer call was outstanding. We are so excited to have you.",time:"Mar 10, 9:00am"},{id:2,from:"prospect",text:"Coach, this was the easiest decision I've ever made. Williams is perfect.",time:"Mar 10, 10:00am"},{id:3,from:"coach",text:"That means the world. Let's get the paperwork moving.",time:"Mar 10, 10:30am"}],null,[{id:"n1",text:"Best player in BCHL by advanced metrics this year. Several NESCAC programs after him — act fast.",date:"Jan 15, 2025",time:"9:00am"},{id:"n2",text:"Verbal commitment confirmed. Emailed his family. Parents are thrilled.",date:"Mar 12, 2025",time:"11:00am"}]),
+    mkP(303,"Y. Korhonen","LW","OJHL","Aurora Tigers",19,37,14,19,"6'1\"","186",[mkEval("e1","Nov 10","OJHL showcase",4,4,3,4,4),mkEval("e2","Feb 8","Aurora playoff run",4,5,3,5,5)],"Offer verbally accepted — skilled winger with elite compete level","A",[{id:1,from:"coach",text:"Yianni — just wanted to say again how thrilled we are.",time:"Mar 5, 9:00am"},{id:2,from:"prospect",text:"Coach, Williams was always my dream school. Can't wait.",time:"Mar 5, 10:00am"}],null,[{id:"n1",text:"Brother played at Bowdoin — family very familiar with NESCAC culture.",date:"Feb 25, 2025",time:"2:00pm"}]),
+  ],
+};
+
+// ── Small shared components ──────────────────────────────────────────────────
+
+function TierBadge({ tier }) {
+  const c = { A:{ bg:"#0C2A1A", text:C.green, border:"#10B98133" }, B:{ bg:"#1A1A0C", text:C.gold, border:"#F59E0B33" }, C:{ bg:"#111827", text:C.muted, border:"#64748B33" } }[tier] || {};
+  return <span style={{ fontSize:10, fontWeight:700, padding:"2px 6px", borderRadius:4, background:c.bg, color:c.text, border:`1px solid ${c.border}`, fontFamily:"monospace", letterSpacing:1 }}>{tier}</span>;
+}
+
+function ScoreRing({ value, size=32 }) {
+  const v = Number(value);
+  const color = v >= 4 ? C.green : v >= 3 ? C.gold : C.muted;
+  return <div style={{ display:"flex", alignItems:"center", justifyContent:"center", width:size, height:size, borderRadius:"50%", border:`2px solid ${color}`, fontSize:size*0.34, fontWeight:700, color, fontFamily:"monospace", flexShrink:0 }}>{fmtScore(v)}</div>;
+}
+
+function ScoreBar({ value }) {
+  const v = Number(value);
+  const color = v >= 4 ? C.green : v >= 3 ? C.gold : C.muted;
+  return <div style={{ height:4, background:C.border, borderRadius:2 }}><div style={{ height:"100%", width:`${(v/5)*100}%`, background:color, borderRadius:2 }} /></div>;
+}
+
+// ── Roster components ────────────────────────────────────────────────────────
+
+function PlayerSlot({ player }) {
+  const isOpen = player.status === "open";
+  const isRef = player.status === "ref";
+  const isRival = player.status === "rival";
+  const yrC = { Sr:C.red, Jr:C.gold, So:C.accent, Fr:C.green };
+  const topBorder = isOpen ? C.border+"33" : isRef ? C.gold : isRival ? C.purple : C.accent;
+  const borderColor = isOpen ? C.border+"44" : isRef ? C.gold+"44" : isRival ? C.purple+"44" : C.border;
+  const nameColor = isRef ? C.gold : isRival ? C.purple : C.text;
+  const showStats = !isOpen && player.gp !== "";
   return (
-    <div className="App">
-      <header className="App-header">
-        <img src={logo} className="App-logo" alt="logo" />
-        <p>
-          Edit <code>src/App.js</code> and save to reload.
-        </p>
-        <a
-          className="App-link"
-          href="https://reactjs.org"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          Learn React
-        </a>
-      </header>
+    <div style={{ background:isOpen?"transparent":C.card, border:`1px solid ${borderColor}`, borderTop:`2px solid ${topBorder}`, borderRadius:8, padding:"7px 9px", minHeight:68 }}>
+      <div style={{ fontSize:9, color:C.muted, letterSpacing:1, marginBottom:3 }}>{player.pos}</div>
+      {isOpen ? <div style={{ fontSize:10, color:C.muted+"55", fontStyle:"italic" }}>Open</div> : (
+        <>
+          <div style={{ fontSize:11, fontWeight:700, color:nameColor, lineHeight:1.2, marginBottom:2 }}>{player.name}</div>
+          <div style={{ display:"flex", gap:5, flexWrap:"wrap", marginBottom:2 }}>
+            {player.yr && <span style={{ fontSize:9, fontWeight:700, color:yrC[player.yr]||C.muted, fontFamily:"monospace" }}>{player.yr}</span>}
+            {player.hand && <span style={{ fontSize:9, color:C.muted, fontFamily:"monospace" }}>{player.hand}</span>}
+            {player.ht && <span style={{ fontSize:9, color:C.muted }}>{player.ht}</span>}
+          </div>
+          {showStats && (
+            <div style={{ fontSize:9, color:C.accent, fontFamily:"monospace" }}>
+              {player.pos === "G" ? (player.extra || `${player.gp}GP`) : `${player.gp}GP ${player.g}G ${player.a}A`}
+            </div>
+          )}
+        </>
+      )}
     </div>
   );
 }
 
-export default App;
+function RosterGrid({ roster }) {
+  const fwdLines = [[0,3],[3,6],[6,9],[9,12]].map(([s,e]) => roster.forwards.slice(s,e));
+  const defLines = [[0,2],[2,4],[4,6]].map(([s,e]) => roster.defense.slice(s,e));
+  return (
+    <div>
+      <SecLabel title="Forwards" sub="4 lines" />
+      {fwdLines.map((line,i) => <div key={i} style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:5, marginBottom:5 }}>{line.map((p,j) => <PlayerSlot key={j} player={p} />)}</div>)}
+      <SecLabel title="Defense" sub="3 pairs" mt="12px" />
+      {defLines.map((pair,i) => <div key={i} style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:5, marginBottom:5 }}>{pair.map((p,j) => <PlayerSlot key={j} player={p} />)}</div>)}
+      <SecLabel title="Goalies" mt="12px" />
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:5 }}>
+        {roster.goalies.map((p,i) => <PlayerSlot key={i} player={p} />)}
+      </div>
+    </div>
+  );
+}
+
+function SecLabel({ title, sub, mt="8px" }) {
+  return (
+    <div style={{ display:"flex", gap:8, alignItems:"center", margin:`${mt} 0 7px` }}>
+      <span style={{ fontSize:10, fontWeight:700, color:C.text, letterSpacing:0.5 }}>{title.toUpperCase()}</span>
+      {sub && <span style={{ fontSize:10, color:C.muted }}>{sub}</span>}
+    </div>
+  );
+}
+
+function RosterLegend({ showRef, showRival }) {
+  return (
+    <div style={{ display:"flex", gap:12, marginBottom:12, flexWrap:"wrap" }}>
+      {[["Sr",C.red],["Jr",C.gold],["So",C.accent],["Fr",C.green]].map(([yr,c]) => (
+        <div key={yr} style={{ display:"flex", alignItems:"center", gap:4 }}><div style={{ width:7, height:7, borderRadius:2, background:c }} /><span style={{ fontSize:10, color:C.muted }}>{yr}</span></div>
+      ))}
+      {showRef && <div style={{ display:"flex", alignItems:"center", gap:4 }}><div style={{ width:7, height:7, borderRadius:2, background:C.gold+"55", border:`1px solid ${C.gold}` }} /><span style={{ fontSize:10, color:C.muted }}>Benchmark</span></div>}
+      {showRival && <div style={{ display:"flex", alignItems:"center", gap:4 }}><div style={{ width:7, height:7, borderRadius:2, background:C.purple+"55", border:`1px solid ${C.purple}` }} /><span style={{ fontSize:10, color:C.muted }}>Rival</span></div>}
+      <div style={{ display:"flex", alignItems:"center", gap:4 }}><div style={{ width:7, height:7, borderRadius:2, border:`1px solid ${C.border+"55"}` }} /><span style={{ fontSize:10, color:C.muted }}>Open</span></div>
+    </div>
+  );
+}
+
+// ── Pipeline card ────────────────────────────────────────────────────────────
+
+function ProspectCard({ prospect, onClick, selected }) {
+  const scores = avgScores(prospect.evals);
+  const avg = compositeAvg(scores);
+  const msgs = prospect.messages?.length || 0;
+  const evalCount = prospect.evals?.length || 0;
+  const noteCount = prospect.notes?.length || 0;
+  return (
+    <div onClick={() => onClick(prospect)} style={{ background:selected?"#1E3048":C.card, border:`1px solid ${selected?C.accent:C.border}`, borderRadius:10, padding:"10px 12px", cursor:"pointer", marginBottom:7 }}>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:6 }}>
+        <div>
+          <div style={{ fontWeight:700, fontSize:13, color:C.text, marginBottom:1 }}>{prospect.name}</div>
+          <div style={{ fontSize:10, color:C.muted }}>{prospect.pos} · {prospect.team}</div>
+        </div>
+        <div style={{ display:"flex", flexDirection:"column", alignItems:"flex-end", gap:3 }}>
+          <TierBadge tier={prospect.tier} />
+          <ScoreRing value={avg} />
+        </div>
+      </div>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+        <span style={{ fontSize:10, color:C.accent, fontFamily:"monospace" }}>{prospect.g}G {prospect.a}A · {prospect.league}</span>
+        <div style={{ display:"flex", gap:7 }}>
+          {evalCount > 0 && <span style={{ fontSize:10, color:C.purple }}>👁 {evalCount}</span>}
+          {noteCount > 0 && <span style={{ fontSize:10, color:C.gold }}>📝 {noteCount}</span>}
+          {msgs > 0 && <span style={{ fontSize:10, color:C.accent }}>💬 {msgs}</span>}
+          {prospect.nudge && <span style={{ fontSize:10, color:C.gold }}>⏰</span>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Detail panel tabs ────────────────────────────────────────────────────────
+
+function EvaluationsTab({ prospect, onAddEval }) {
+  const [adding, setAdding] = useState(false);
+  const [context, setContext] = useState("");
+  const [ns, setNs] = useState({ skating:3, skill:3, size:3, sense:3, spirit:3 });
+  const evals = prospect.evals || [];
+  const rolling = avgScores(evals);
+  const rollingAvg = compositeAvg(rolling);
+
+  function handleSave() {
+    if (!context.trim()) return;
+    const today = new Date().toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"});
+    onAddEval(prospect.id, { id:`e${Date.now()}`, date:today, context:context.trim(), scores:{...ns} });
+    setAdding(false); setContext(""); setNs({ skating:3, skill:3, size:3, sense:3, spirit:3 });
+  }
+
+  return (
+    <div style={{ flex:1, overflowY:"auto", padding:12 }}>
+      <div style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:9, padding:12, marginBottom:12 }}>
+        <div style={{ display:"flex", justifyContent:"space-between", marginBottom:10 }}>
+          <span style={{ fontSize:10, fontWeight:700, color:C.text, letterSpacing:0.5 }}>ROLLING AVG · {evals.length} VIEWING{evals.length!==1?"S":""}</span>
+          <ScoreRing value={rollingAvg} size={36} />
+        </div>
+        {DIMS.map(d => (
+          <div key={d} style={{ marginBottom:8 }}>
+            <div style={{ display:"flex", justifyContent:"space-between", marginBottom:3 }}>
+              <span style={{ fontSize:10, color:C.muted }}>{DIM_LABELS[d]}</span>
+              <span style={{ fontSize:10, fontWeight:700, color:C.accent, fontFamily:"monospace" }}>{fmtScore(rolling[d])}</span>
+            </div>
+            <ScoreBar value={rolling[d]} />
+          </div>
+        ))}
+      </div>
+      {evals.length > 0 && (
+        <div style={{ marginBottom:12 }}>
+          <div style={{ fontSize:10, fontWeight:700, color:C.text, letterSpacing:0.5, marginBottom:8 }}>EVALUATION HISTORY</div>
+          {[...evals].reverse().map((ev, i) => {
+            const evAvg = compositeAvg(ev.scores);
+            const prev = i < evals.length-1 ? evals[evals.length-2-i] : null;
+            const delta = prev ? evAvg - compositeAvg(prev.scores) : null;
+            return (
+              <div key={ev.id} style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:8, padding:"10px 12px", marginBottom:6 }}>
+                <div style={{ display:"flex", justifyContent:"space-between", marginBottom:7 }}>
+                  <div><div style={{ fontSize:12, fontWeight:700, color:C.text }}>{ev.context}</div><div style={{ fontSize:10, color:C.muted }}>{ev.date}</div></div>
+                  <div style={{ display:"flex", alignItems:"center", gap:6 }}>
+                    {delta !== null && <span style={{ fontSize:10, fontWeight:700, color:delta>0?C.green:delta<0?C.red:C.muted, fontFamily:"monospace" }}>{delta>0?"↑":delta<0?"↓":"→"}{Math.abs(delta).toFixed(1)}</span>}
+                    <ScoreRing value={evAvg} size={30} />
+                  </div>
+                </div>
+                <div style={{ display:"grid", gridTemplateColumns:"repeat(5,1fr)", gap:4 }}>
+                  {DIMS.map(d => <div key={d} style={{ textAlign:"center" }}><div style={{ fontSize:9, color:C.muted, marginBottom:1 }}>{d.slice(0,2).toUpperCase()}</div><div style={{ fontSize:11, fontWeight:700, color:C.accent, fontFamily:"monospace" }}>{ev.scores[d]}</div></div>)}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {!adding ? (
+        <button onClick={() => setAdding(true)} style={{ width:"100%", padding:"9px", borderRadius:7, cursor:"pointer", background:"transparent", border:`1px dashed ${C.accent}`, color:C.accent, fontSize:12, fontWeight:600 }}>+ Log New Evaluation</button>
+      ) : (
+        <div style={{ background:C.card, border:`1px solid ${C.accent}`, borderRadius:9, padding:12 }}>
+          <div style={{ fontSize:11, fontWeight:700, color:C.accent, marginBottom:10 }}>NEW EVALUATION</div>
+          <input value={context} onChange={e => setContext(e.target.value)} placeholder="Tournament / game context..." style={{ width:"100%", background:C.bg, border:`1px solid ${C.border}`, borderRadius:6, padding:"7px 9px", fontSize:12, color:C.text, outline:"none", marginBottom:10, boxSizing:"border-box" }} />
+          {DIMS.map(d => (
+            <div key={d} style={{ marginBottom:8 }}>
+              <div style={{ display:"flex", justifyContent:"space-between", marginBottom:4 }}><span style={{ fontSize:10, color:C.muted }}>{DIM_LABELS[d]}</span><span style={{ fontSize:10, fontWeight:700, color:C.accent, fontFamily:"monospace" }}>{ns[d]}/5</span></div>
+              <div style={{ display:"flex", gap:3 }}>{[1,2,3,4,5].map(n => <button key={n} onClick={() => setNs(s=>({...s,[d]:n}))} style={{ flex:1, height:22, borderRadius:3, cursor:"pointer", border:"none", background:n<=ns[d]?C.accent:C.border }} />)}</div>
+            </div>
+          ))}
+          <div style={{ display:"flex", gap:7, marginTop:10 }}>
+            <button onClick={handleSave} style={{ flex:1, padding:"8px", borderRadius:6, cursor:"pointer", background:C.accent, border:"none", color:"#fff", fontSize:12, fontWeight:600 }}>Save</button>
+            <button onClick={() => setAdding(false)} style={{ padding:"8px 12px", borderRadius:6, cursor:"pointer", background:"transparent", border:`1px solid ${C.border}`, color:C.muted, fontSize:12 }}>Cancel</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function NotesTab({ prospect, onAddNote }) {
+  const [draft, setDraft] = useState("");
+  const notes = prospect.notes || [];
+  function handleAdd() {
+    if (!draft.trim()) return;
+    const today = new Date().toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"});
+    const now = new Date().toLocaleTimeString([],{hour:"numeric",minute:"2-digit"});
+    onAddNote(prospect.id, { id:`n${Date.now()}`, text:draft.trim(), date:today, time:now });
+    setDraft("");
+  }
+  return (
+    <div style={{ display:"flex", flexDirection:"column", flex:1, overflow:"hidden" }}>
+      <div style={{ flex:1, overflowY:"auto", padding:12 }}>
+        {notes.length === 0 ? <div style={{ textAlign:"center", padding:"24px 0", fontSize:11, color:C.muted }}>No notes yet</div> : [...notes].reverse().map(n => (
+          <div key={n.id} style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:8, padding:"9px 11px", marginBottom:7 }}>
+            <div style={{ fontSize:12, color:C.text, lineHeight:1.6, marginBottom:5 }}>{n.text}</div>
+            <div style={{ fontSize:9, color:C.muted }}>{n.date} · {n.time}</div>
+          </div>
+        ))}
+      </div>
+      <div style={{ padding:"8px 10px", borderTop:`1px solid ${C.border}`, flexShrink:0 }}>
+        <textarea value={draft} onChange={e => setDraft(e.target.value)} onKeyDown={e => { if (e.key==="Enter"&&!e.shiftKey){ e.preventDefault(); handleAdd(); }}} placeholder="Add a note..." rows={2} style={{ width:"100%", background:C.card, border:`1px solid ${C.border}`, borderRadius:7, padding:"7px 9px", fontSize:12, color:C.text, resize:"none", outline:"none", fontFamily:"inherit", lineHeight:1.4, boxSizing:"border-box", marginBottom:6 }} />
+        <button onClick={handleAdd} disabled={!draft.trim()} style={{ width:"100%", padding:"7px", borderRadius:6, cursor:draft.trim()?"pointer":"default", background:draft.trim()?C.accent:"transparent", border:`1px solid ${draft.trim()?C.accent:C.border}`, color:draft.trim()?"#fff":C.muted, fontSize:12, fontWeight:600 }}>Save Note</button>
+      </div>
+    </div>
+  );
+}
+
+function SMSThread({ prospect, onSend }) {
+  const [draft, setDraft] = useState("");
+  const msgs = prospect.messages || [];
+  return (
+    <div style={{ display:"flex", flexDirection:"column", flex:1, overflow:"hidden" }}>
+      <div style={{ padding:"8px 14px", borderBottom:`1px solid ${C.border}`, flexShrink:0 }}>
+        <div style={{ fontSize:11, fontWeight:700, color:C.text }}>SMS THREAD</div>
+        <div style={{ fontSize:10, color:C.muted }}>via IceBoard · auto-logged</div>
+      </div>
+      <div style={{ flex:1, overflowY:"auto", padding:"10px 14px", display:"flex", flexDirection:"column", gap:8 }}>
+        {msgs.length === 0 ? <div style={{ textAlign:"center", padding:"20px 0" }}><div style={{ fontSize:11, color:C.muted }}>No messages yet</div><div style={{ fontSize:10, color:C.accent, marginTop:4 }}>⚡ First text auto-advances to Contact Made</div></div>
+        : msgs.map(msg => (
+          <div key={msg.id} style={{ display:"flex", flexDirection:"column", alignItems:msg.from==="coach"?"flex-end":"flex-start" }}>
+            <div style={{ maxWidth:"80%", padding:"7px 11px", borderRadius:msg.from==="coach"?"10px 10px 2px 10px":"10px 10px 10px 2px", background:msg.from==="coach"?C.accent:C.card, border:msg.from==="prospect"?`1px solid ${C.border}`:"none", fontSize:12, color:C.text, lineHeight:1.5 }}>{msg.text}</div>
+            <div style={{ fontSize:9, color:C.muted, marginTop:2 }}>{msg.time}{msg.from==="coach"?" · ✓✓":""}</div>
+          </div>
+        ))}
+      </div>
+      <div style={{ padding:"7px 10px", borderTop:`1px solid ${C.border}`, display:"flex", gap:7, alignItems:"flex-end", flexShrink:0 }}>
+        <textarea value={draft} onChange={e => setDraft(e.target.value)} onKeyDown={e => { if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();if(draft.trim()){onSend(draft.trim());setDraft("");}}}} placeholder={`Text ${prospect.name.split(" ")[0]}...`} rows={2} style={{ flex:1, background:C.card, border:`1px solid ${C.border}`, borderRadius:7, padding:"6px 9px", fontSize:12, color:C.text, resize:"none", outline:"none", fontFamily:"inherit", lineHeight:1.4 }} />
+        <button onClick={() => { if(draft.trim()){onSend(draft.trim());setDraft("");}}} style={{ background:draft.trim()?C.accent:C.border, border:"none", borderRadius:7, width:32, height:32, cursor:"pointer", fontSize:14, flexShrink:0 }}>➤</button>
+      </div>
+    </div>
+  );
+}
+
+function NudgeTab({ prospect, onSetNudge }) {
+  const [sel, setSel] = useState(prospect.nudge||"");
+  const opts = ["1 month","2 months","3 months","6 months","Next fall","Next season"];
+  return (
+    <div style={{ padding:12 }}>
+      <div style={{ fontSize:11, color:C.muted, lineHeight:1.6, marginBottom:12 }}>Set a reminder to check back in with {prospect.name.split(" ")[0]}. No prospect falls through the cracks.</div>
+      {prospect.nudge && <div style={{ background:"#0C1A2A", border:`1px solid ${C.gold}33`, borderLeft:`3px solid ${C.gold}`, borderRadius:7, padding:"7px 11px", marginBottom:12, fontSize:11, color:C.gold }}>⏰ Current: {prospect.nudge}</div>}
+      <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
+        {opts.map(o => <button key={o} onClick={() => setSel(o)} style={{ padding:"9px 12px", borderRadius:7, cursor:"pointer", textAlign:"left", fontSize:12, background:sel===o?"#0C1A2A":"transparent", border:`1px solid ${sel===o?C.gold:C.border}`, color:sel===o?C.gold:C.text }}>{sel===o?"✓ ":""}{o}</button>)}
+      </div>
+      <button onClick={() => onSetNudge(prospect.id, sel)} disabled={!sel} style={{ marginTop:12, width:"100%", padding:"9px", borderRadius:7, cursor:sel?"pointer":"default", background:sel?C.gold:"transparent", border:`1px solid ${sel?C.gold:C.border}`, color:sel?"#000":C.muted, fontSize:12, fontWeight:600 }}>Set Nudge</button>
+      {prospect.nudge && <button onClick={() => { onSetNudge(prospect.id,null); setSel(""); }} style={{ marginTop:6, width:"100%", padding:"7px", borderRadius:7, cursor:"pointer", background:"transparent", border:`1px solid ${C.border}`, color:C.muted, fontSize:11 }}>Clear nudge</button>}
+    </div>
+  );
+}
+
+function ProspectDetail({ prospect, onClose, onMove, onSend, onAddEval, onSetNudge, onAddNote }) {
+  const [tab, setTab] = useState("evals");
+  const msgs = prospect.messages||[];
+  const evalCount = prospect.evals?.length||0;
+  const noteCount = prospect.notes?.length||0;
+  const TABS = [["evals",`Evals (${evalCount})`],["notes",`Notes${noteCount>0?` (${noteCount})`:""}`],["sms",`SMS${msgs.length>0?` (${msgs.length})`:""}`],["move","Move"],["nudge",prospect.nudge?"⏰ Nudge":"Nudge"]];
+  return (
+    <div style={{ display:"flex", flexDirection:"column", height:"100%", background:C.surface, borderLeft:`1px solid ${C.border}`, overflow:"hidden" }}>
+      <div style={{ padding:"12px 16px 0", borderBottom:`1px solid ${C.border}`, flexShrink:0 }}>
+        <div style={{ display:"flex", justifyContent:"space-between", marginBottom:8 }}>
+          <div>
+            <div style={{ display:"flex", gap:7, marginBottom:3 }}><TierBadge tier={prospect.tier} /><span style={{ fontSize:10, color:C.muted }}>{prospect.pos} · {prospect.league}</span></div>
+            <div style={{ fontSize:17, fontWeight:800, color:C.text }}>{prospect.name}</div>
+            <div style={{ fontSize:11, color:C.muted }}>{prospect.team} · Age {prospect.age}</div>
+          </div>
+          <button onClick={onClose} style={{ background:"none", border:"none", color:C.muted, cursor:"pointer", fontSize:18 }}>×</button>
+        </div>
+        <div style={{ display:"flex", overflowX:"auto" }}>
+          {TABS.map(([t,l]) => <button key={t} onClick={() => setTab(t)} style={{ background:"none", border:"none", cursor:"pointer", padding:"6px 11px", fontSize:11, fontWeight:600, color:tab===t?C.accent:C.muted, borderBottom:`2px solid ${tab===t?C.accent:"transparent"}`, whiteSpace:"nowrap" }}>{l}</button>)}
+        </div>
+      </div>
+      <div style={{ flex:1, overflow:"hidden", display:"flex", flexDirection:"column" }}>
+        {tab==="evals" && <EvaluationsTab prospect={prospect} onAddEval={onAddEval} />}
+        {tab==="notes" && <NotesTab prospect={prospect} onAddNote={onAddNote} />}
+        {tab==="sms" && <SMSThread prospect={prospect} onSend={(text) => onSend(prospect.id,text)} />}
+        {tab==="move" && (
+          <div style={{ padding:12 }}>
+            <div style={{ fontSize:10, color:C.muted, marginBottom:8 }}>MOVE TO STAGE</div>
+            {COLUMNS.map(col => <button key={col.key} onClick={() => { onMove(prospect.id,col.key); setTab("evals"); }} style={{ display:"block", width:"100%", padding:"8px 12px", borderRadius:6, cursor:"pointer", textAlign:"left", fontSize:12, background:"transparent", border:`1px solid ${C.border}`, color:C.text, marginBottom:5 }} onMouseEnter={e => { e.currentTarget.style.borderColor=col.color; e.currentTarget.style.color=col.color; }} onMouseLeave={e => { e.currentTarget.style.borderColor=C.border; e.currentTarget.style.color=C.text; }}>→ {col.label}</button>)}
+          </div>
+        )}
+        {tab==="nudge" && <NudgeTab prospect={prospect} onSetNudge={onSetNudge} />}
+      </div>
+    </div>
+  );
+}
+
+// ── Trending Players ─────────────────────────────────────────────────────────
+
+function AvailBadge({ status }) {
+  const c = { Available:{bg:"#0C2A1A",text:C.green,border:"#10B98133"}, Committed:{bg:"#1A0C0C",text:C.red,border:"#EF444433"}, Unknown:{bg:"#1A1A0C",text:C.gold,border:"#F59E0B33"} }[status]||{};
+  return <span style={{ fontSize:9, fontWeight:700, padding:"2px 6px", borderRadius:4, background:c.bg, color:c.text, border:`1px solid ${c.border}`, fontFamily:"monospace" }}>{status}</span>;
+}
+
+function TrendingCard({ player, onAdd, onRemove }) {
+  return (
+    <div style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:10, padding:"10px 14px", marginBottom:7 }}>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:6 }}>
+        <div><div style={{ fontWeight:700, fontSize:13, color:C.text, marginBottom:1 }}>{player.name}</div><div style={{ fontSize:10, color:C.muted }}>{player.pos} · {player.team} · {player.league}</div></div>
+        <div style={{ display:"flex", flexDirection:"column", alignItems:"flex-end", gap:4 }}><AvailBadge status={player.availability} /><span style={{ fontSize:9, color:C.muted }}>Age {player.age}</span></div>
+      </div>
+      <div style={{ background:C.bg, borderRadius:6, padding:"5px 8px", marginBottom:8, fontSize:11, color:C.gold }}>🏒 {player.weekend}</div>
+      <div style={{ display:"flex", gap:6 }}>
+        {!player.onBoard ? <button onClick={() => onAdd(player)} style={{ flex:1, padding:"6px", borderRadius:6, cursor:"pointer", background:"transparent", border:`1px solid ${C.accent}`, color:C.accent, fontSize:11, fontWeight:600 }}>+ Add to Pipeline</button>
+        : <div style={{ flex:1, padding:"6px", borderRadius:6, background:"#0C1A2A", border:`1px solid ${C.accent}33`, color:C.accent, fontSize:11, textAlign:"center" }}>✓ On your board</div>}
+        <button onClick={() => onRemove(player.id)} style={{ padding:"6px 10px", borderRadius:6, cursor:"pointer", background:"transparent", border:`1px solid ${C.border}`, color:C.muted, fontSize:11 }}>Remove</button>
+      </div>
+    </div>
+  );
+}
+
+function TrendingTab({ allProspects }) {
+  const [view, setView] = useState("pipeline");
+  const [removedIds, setRemovedIds] = useState([]);
+  const [added, setAdded] = useState([]);
+  const pipelineNames = allProspects.map(p => p.name);
+  const enrichedPipeline = TRENDING_PIPELINE.map(p => ({...p, onBoard:pipelineNames.includes(p.name)})).filter(p => !removedIds.includes(p.id));
+  const enrichedLeague = TRENDING_LEAGUE.map(p => ({...p, onBoard:added.includes(p.id)})).filter(p => !removedIds.includes(p.id));
+  const removedAll = [...TRENDING_PIPELINE,...TRENDING_LEAGUE].filter(p => removedIds.includes(p.id));
+  return (
+    <div style={{ flex:1, display:"flex", flexDirection:"column", overflow:"hidden" }}>
+      <div style={{ background:C.surface, borderBottom:`1px solid ${C.border}`, padding:"0 16px", display:"flex", flexShrink:0 }}>
+        {[["pipeline","My Pipeline"],["league","League Feed"],["removed",`Removed (${removedIds.length})`]].map(([v,l]) => <button key={v} onClick={() => setView(v)} style={{ background:"none", border:"none", cursor:"pointer", padding:"8px 13px", fontSize:11, fontWeight:600, color:view===v?C.accent:C.muted, borderBottom:`2px solid ${view===v?C.accent:"transparent"}` }}>{l}</button>)}
+      </div>
+      <div style={{ flex:1, overflowY:"auto", padding:"12px 16px" }}>
+        {view==="pipeline" && <><div style={{ background:C.card, border:`1px solid ${C.accent}33`, borderLeft:`3px solid ${C.accent}`, borderRadius:7, padding:"7px 11px", marginBottom:12, fontSize:11, color:C.accent }}>Top performers from this weekend who are already on your board — prioritize your touchpoints</div>{enrichedPipeline.map(p => <TrendingCard key={p.id} player={p} onAdd={id => setAdded(a=>[...a,id])} onRemove={id => setRemovedIds(r=>[...r,id])} />)}</>}
+        {view==="league" && <><div style={{ background:C.card, border:`1px solid ${C.gold}33`, borderLeft:`3px solid ${C.gold}`, borderRadius:7, padding:"7px 11px", marginBottom:12, fontSize:11, color:C.gold }}>All top performers this weekend across target leagues — add to pipeline or remove committed players</div>{enrichedLeague.map(p => <TrendingCard key={p.id} player={p} onAdd={p => setAdded(a=>[...a,p.id])} onRemove={id => setRemovedIds(r=>[...r,id])} />)}</>}
+        {view==="removed" && (removedAll.length===0 ? <div style={{ textAlign:"center", padding:"32px 0", fontSize:12, color:C.muted }}>No removed players</div> : removedAll.map(p => <div key={p.id} style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:10, padding:"10px 14px", marginBottom:7, opacity:0.6 }}><div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}><div><div style={{ fontSize:12, fontWeight:700, color:C.text }}>{p.name}</div><div style={{ fontSize:10, color:C.muted }}>{p.pos} · {p.league} · {p.weekend}</div></div><button onClick={() => setRemovedIds(r => r.filter(id => id!==p.id))} style={{ fontSize:10, padding:"4px 8px", borderRadius:5, cursor:"pointer", background:"transparent", border:`1px solid ${C.border}`, color:C.muted }}>Restore</button></div></div>))}
+      </div>
+    </div>
+  );
+}
+
+// ── Main App ──────────────────────────────────────────────────────────────────
+
+export default function IceBoard() {
+  const [school, setSchool] = useState("Williams College");
+  const [prospects, setProspects] = useState(INITIAL_PROSPECTS);
+  const [selected, setSelected] = useState(null);
+  const [activeTab, setActiveTab] = useState("pipeline");
+  const [warRoomTab, setWarRoomTab] = useState(0);
+  const [rivalTab, setRivalTab] = useState(0);
+  const [notification, setNotification] = useState(null);
+
+  const allProspects = Object.values(prospects).flat();
+
+  function notify(msg) { setNotification(msg); setTimeout(() => setNotification(null), 3000); }
+
+  function updateProspect(id, updater) {
+    setProspects(prev => {
+      const next = {};
+      for (const [col, list] of Object.entries(prev)) {
+        next[col] = list.map(p => p.id===id ? updater(p) : p);
+      }
+      return next;
+    });
+    setSelected(prev => prev?.id===id ? updater(prev) : prev);
+  }
+
+  function moveProspect(id, targetCol) {
+    setProspects(prev => {
+      const next = {};
+      let moved = null;
+      for (const [col, list] of Object.entries(prev)) {
+        next[col] = list.filter(p => { if(p.id===id){moved=p;return false;} return true; });
+      }
+      if (moved) next[targetCol] = [...next[targetCol], moved];
+      return next;
+    });
+    setSelected(null);
+  }
+
+  function sendMessage(prospectId, text) {
+    const now = new Date().toLocaleTimeString([],{hour:"numeric",minute:"2-digit"});
+    const newMsg = { id:Date.now(), from:"coach", text, time:`Today ${now}` };
+    let autoAdvanced = false, name = "";
+    setProspects(prev => {
+      const next = {};
+      for (const [col, list] of Object.entries(prev)) {
+        const idx = list.findIndex(p => p.id===prospectId);
+        if (idx !== -1) {
+          const updated = {...list[idx], messages:[...(list[idx].messages||[]), newMsg]};
+          name = updated.name.split(" ")[0];
+          if (col==="identified" && (list[idx].messages||[]).length===0) {
+            next[col] = list.filter((_,i) => i!==idx);
+            next.contacted = [...(prev.contacted||[]), updated];
+            autoAdvanced = true;
+          } else {
+            next[col] = list.map((p,i) => i===idx ? updated : p);
+          }
+        } else { next[col] = list; }
+      }
+      return next;
+    });
+    if (autoAdvanced) notify(`⚡ ${name} auto-advanced to Contact Made`);
+    setSelected(prev => prev?.id===prospectId ? {...prev, messages:[...(prev.messages||[]), newMsg]} : prev);
+  }
+
+  function addEval(id, entry) {
+    updateProspect(id, p => ({...p, evals:[...(p.evals||[]), entry]}));
+    notify("✓ Evaluation logged — rolling average updated");
+  }
+  function addNote(id, entry) { updateProspect(id, p => ({...p, notes:[...(p.notes||[]), entry]})); }
+  function setNudge(id, val) {
+    updateProspect(id, p => ({...p, nudge:val}));
+    notify(val ? `⏰ Nudge set: ${val}` : "Nudge cleared");
+  }
+
+  const liveSelected = selected ? allProspects.find(p => p.id===selected.id)||selected : null;
+  const warRoomRosters = [MY_ROSTER, ...BENCHMARK_ROSTERS];
+
+  const NAV = [
+    {key:"pipeline",label:"Pipeline Board"},
+    {key:"trending",label:"Trending Players"},
+    {key:"warroom",label:"War Room"},
+    {key:"rivals",label:"Rival Rosters"},
+  ];
+
+  return (
+    <div style={{ background:C.bg, height:"100vh", fontFamily:"'DM Sans','Segoe UI',sans-serif", color:C.text, display:"flex", flexDirection:"column", overflow:"hidden" }}>
+      {notification && <div style={{ position:"absolute", top:12, left:"50%", transform:"translateX(-50%)", background:C.green, color:"#fff", padding:"7px 16px", borderRadius:7, fontSize:12, fontWeight:600, zIndex:999, whiteSpace:"nowrap" }}>{notification}</div>}
+
+      {/* Header */}
+      <div style={{ background:C.surface, borderBottom:`1px solid ${C.border}`, padding:"0 16px", display:"flex", alignItems:"center", justifyContent:"space-between", height:50, flexShrink:0 }}>
+        <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+          <div style={{ width:24, height:24, borderRadius:5, background:C.accent, display:"flex", alignItems:"center", justifyContent:"center", fontSize:12 }}>🏒</div>
+          <span style={{ fontWeight:800, fontSize:15, letterSpacing:-0.5 }}>IceBoard</span>
+          <select value={school} onChange={e => setSchool(e.target.value)} style={{ background:C.card, border:`1px solid ${C.border}`, color:C.text, borderRadius:5, padding:"3px 8px", fontSize:11, outline:"none", cursor:"pointer" }}>
+            {SCHOOLS.map(s => <option key={s} value={s}>{s}</option>)}
+          </select>
+        </div>
+        <div style={{ display:"flex", gap:12 }}>
+          {[["Prospects",allProspects.length],["A List",allProspects.filter(p=>p.tier==="A").length],["Messages",allProspects.reduce((s,p)=>s+(p.messages?.length||0),0)]].map(([l,v]) => (
+            <div key={l} style={{ textAlign:"center" }}>
+              <div style={{ fontWeight:700, fontSize:14, color:C.accent, fontFamily:"monospace" }}>{v}</div>
+              <div style={{ color:C.muted, fontSize:9, letterSpacing:0.5 }}>{l.toUpperCase()}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Nav */}
+      <div style={{ background:C.surface, borderBottom:`1px solid ${C.border}`, padding:"0 16px", display:"flex", flexShrink:0 }}>
+        {NAV.map(({key,label}) => <button key={key} onClick={() => setActiveTab(key)} style={{ background:"none", border:"none", cursor:"pointer", padding:"9px 14px", fontSize:12, fontWeight:600, color:activeTab===key?C.accent:C.muted, borderBottom:`2px solid ${activeTab===key?C.accent:"transparent"}` }}>{label}</button>)}
+      </div>
+
+      {/* Pipeline */}
+      {activeTab==="pipeline" && (
+        <div style={{ display:"flex", flex:1, overflow:"hidden" }}>
+          <div style={{ flex:1, display:"flex", overflow:"hidden" }}>
+            {COLUMNS.map(col => (
+              <div key={col.key} style={{ flex:1, borderRight:`1px solid ${C.border}`, display:"flex", flexDirection:"column", minWidth:0 }}>
+                <div style={{ padding:"10px 12px", borderBottom:`1px solid ${C.border}`, display:"flex", justifyContent:"space-between", alignItems:"center", flexShrink:0 }}>
+                  <div style={{ display:"flex", alignItems:"center", gap:6 }}><div style={{ width:6, height:6, borderRadius:"50%", background:col.color }} /><span style={{ fontSize:9, fontWeight:700, color:C.text, letterSpacing:0.5 }}>{col.label.toUpperCase()}</span></div>
+                  <span style={{ fontSize:9, color:C.muted, background:C.card, padding:"1px 5px", borderRadius:8, border:`1px solid ${C.border}` }}>{prospects[col.key].length}</span>
+                </div>
+                <div style={{ padding:9, overflowY:"auto", flex:1 }}>
+                  {prospects[col.key].map(p => <ProspectCard key={p.id} prospect={p} onClick={setSelected} selected={selected?.id===p.id} />)}
+                </div>
+              </div>
+            ))}
+          </div>
+          {liveSelected && (
+            <div style={{ width:320, minWidth:320, display:"flex", flexDirection:"column", overflow:"hidden" }}>
+              <ProspectDetail prospect={liveSelected} onClose={() => setSelected(null)} onMove={moveProspect} onSend={sendMessage} onAddEval={addEval} onSetNudge={setNudge} onAddNote={addNote} />
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Trending */}
+      {activeTab==="trending" && <TrendingTab allProspects={allProspects} />}
+
+      {/* War Room */}
+      {activeTab==="warroom" && (
+        <div style={{ flex:1, display:"flex", flexDirection:"column", overflow:"hidden" }}>
+          <div style={{ background:C.surface, borderBottom:`1px solid ${C.border}`, padding:"0 16px", display:"flex", flexShrink:0, overflowX:"auto" }}>
+            {warRoomRosters.map((r,i) => <button key={i} onClick={() => setWarRoomTab(i)} style={{ background:"none", border:"none", cursor:"pointer", padding:"7px 13px", fontSize:11, fontWeight:600, color:warRoomTab===i?(i===0?C.accent:C.gold):C.muted, borderBottom:`2px solid ${warRoomTab===i?(i===0?C.accent:C.gold):"transparent"}`, whiteSpace:"nowrap" }}>★ {r.label}</button>)}
+          </div>
+          <div style={{ flex:1, overflowY:"auto", padding:"14px 18px" }}>
+            {warRoomTab>0 && <div style={{ background:C.card, border:`1px solid ${C.gold}33`, borderLeft:`3px solid ${C.gold}`, borderRadius:7, padding:"7px 11px", marginBottom:12, fontSize:11, color:C.gold }}>{BENCHMARK_ROSTERS[warRoomTab-1].note}</div>}
+            <RosterLegend showRef={warRoomTab>0} showRival={false} />
+            <RosterGrid roster={warRoomRosters[warRoomTab]} />
+            {warRoomTab===0 && (
+              <div style={{ marginTop:18 }}>
+                <div style={{ fontSize:10, fontWeight:700, color:C.text, letterSpacing:0.5, marginBottom:8 }}>A LIST RECRUITS — PIPELINE OVERLAY</div>
+                {allProspects.filter(p=>p.tier==="A").map(p => {
+                  const avg = compositeAvg(avgScores(p.evals));
+                  return (
+                    <div key={p.id} style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"7px 10px", background:C.card, borderRadius:7, border:`1px solid ${C.border}`, marginBottom:5 }}>
+                      <div style={{ display:"flex", gap:9, alignItems:"center" }}>
+                        <TierBadge tier={p.tier} />
+                        <div><div style={{ fontSize:12, fontWeight:600, color:C.text }}>{p.name}</div><div style={{ fontSize:10, color:C.muted }}>{p.pos} · {p.league} · {p.evals?.length||0} viewings</div></div>
+                      </div>
+                      <div style={{ display:"flex", gap:9, alignItems:"center" }}>
+                        {(p.messages?.length||0)>0 && <span style={{ fontSize:10, color:C.accent }}>💬 {p.messages.length}</span>}
+                        <span style={{ fontSize:11, color:C.accent, fontFamily:"monospace" }}>{p.g}G {p.a}A</span>
+                        <ScoreRing value={avg} />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Rival Rosters */}
+      {activeTab==="rivals" && (
+        <div style={{ flex:1, display:"flex", flexDirection:"column", overflow:"hidden" }}>
+          <div style={{ background:C.surface, borderBottom:`1px solid ${C.border}`, padding:"0 16px", display:"flex", flexShrink:0, overflowX:"auto" }}>
+            {RIVAL_ROSTERS.map((r,i) => <button key={i} onClick={() => setRivalTab(i)} style={{ background:"none", border:"none", cursor:"pointer", padding:"7px 14px", fontSize:11, fontWeight:600, color:rivalTab===i?C.purple:C.muted, borderBottom:`2px solid ${rivalTab===i?C.purple:"transparent"}`, whiteSpace:"nowrap" }}>{r.label}</button>)}
+          </div>
+          <div style={{ flex:1, overflowY:"auto", padding:"14px 18px" }}>
+            <div style={{ background:C.card, border:`1px solid ${C.purple}33`, borderLeft:`3px solid ${C.purple}`, borderRadius:7, padding:"7px 11px", marginBottom:12, fontSize:11, color:C.purple }}>{RIVAL_ROSTERS[rivalTab].note}</div>
+            <RosterLegend showRef={false} showRival={true} />
+            <RosterGrid roster={RIVAL_ROSTERS[rivalTab]} />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
