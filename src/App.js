@@ -1066,7 +1066,7 @@ export default function IceBoard() {
   const [futureProjections, setFutureProjections] = useState([]);
   const [customWarRosters, setCustomWarRosters] = useState([]);
   const [customBenchmarkRosters, setCustomBenchmarkRosters] = useState([]);
-  const [compareBenchmarkId, setCompareBenchmarkId] = useState(null);
+  const [compareRosterId, setCompareRosterId] = useState(null);
   const [benchmarkTabId, setBenchmarkTabId] = useState("bench-cornell");
   const [warRoomModal, setWarRoomModal] = useState(null);
   const [rivalTab, setRivalTab] = useState(0);
@@ -1157,7 +1157,6 @@ export default function IceBoard() {
   ], [customBenchmarkRosters]);
 
   const currentWarRoster = warRoomRosters.find(r => r.id === warRoomTabId) || warRoomRosters[0];
-  const compareBenchmarkRoster = compareBenchmarkId ? benchmarkLibrary.find(r => r.id === compareBenchmarkId) : null;
   const activeBenchmarkRoster = benchmarkLibrary.find(x => x.id === benchmarkTabId) || benchmarkLibrary[0];
 
   const rivalRosterKey = `rival-${rivalTab}`;
@@ -1169,6 +1168,32 @@ export default function IceBoard() {
     () => mergeRosterEdit(RIVAL_ROSTERS[rivalTab], rosterEdits[rivalRosterKey]),
     [rivalTab, rosterEdits, rivalRosterKey]
   );
+
+  const compareRosterOptions = useMemo(() => {
+    const warRoomOptions = warRoomRosters
+      .filter(r => r.id !== warRoomTabId)
+      .map(r => ({ id: `war-${r.id}`, source: "warroom", label: `Williams · ${r.label}`, rosterId: r.id }));
+    const rivalOptions = RIVAL_ROSTERS.map((r, idx) => ({ id: `rival-${idx}`, source: "rival", label: `Rival · ${r.label}`, rivalIndex: idx }));
+    const benchmarkOptions = benchmarkLibrary.map(r => ({ id: `bench-${r.id}`, source: "benchmark", label: `Benchmark · ${r.label}`, benchmarkId: r.id }));
+    return [...warRoomOptions, ...rivalOptions, ...benchmarkOptions];
+  }, [warRoomRosters, warRoomTabId, benchmarkLibrary]);
+
+  const selectedCompareOption = compareRosterOptions.find(x => x.id === compareRosterId) || null;
+  const compareRoster = useMemo(() => {
+    if (!selectedCompareOption) return null;
+    if (selectedCompareOption.source === "warroom") {
+      const base = warRoomRosters.find(r => r.id === selectedCompareOption.rosterId);
+      if (!base) return null;
+      return mergeRosterEdit(base, rosterEdits[selectedCompareOption.rosterId]);
+    }
+    if (selectedCompareOption.source === "rival") {
+      const idx = selectedCompareOption.rivalIndex;
+      if (idx == null || !RIVAL_ROSTERS[idx]) return null;
+      return mergeRosterEdit(RIVAL_ROSTERS[idx], rosterEdits[`rival-${idx}`]);
+    }
+    const bench = benchmarkLibrary.find(r => r.id === selectedCompareOption.benchmarkId);
+    return bench || null;
+  }, [selectedCompareOption, warRoomRosters, benchmarkLibrary, rosterEdits]);
 
   const warRoomAllowsRecruits = Boolean(currentWarRoster?.warRoomKind && currentWarRoster.warRoomKind !== "current");
 
@@ -1308,10 +1333,10 @@ export default function IceBoard() {
   }, [warRoomRosters, warRoomTabId]);
 
   useEffect(() => {
-    if (compareBenchmarkId && !benchmarkLibrary.some(r => r.id === compareBenchmarkId)) {
-      setCompareBenchmarkId(null);
+    if (compareRosterId && !compareRosterOptions.some(r => r.id === compareRosterId)) {
+      setCompareRosterId(null);
     }
-  }, [benchmarkLibrary, compareBenchmarkId]);
+  }, [compareRosterOptions, compareRosterId]);
 
   useEffect(() => {
     if (benchmarkLibrary.length && !benchmarkLibrary.some(r => r.id === benchmarkTabId)) {
@@ -1448,19 +1473,19 @@ export default function IceBoard() {
             </button>
           </div>
           <div style={{ padding:"8px 18px 10px", borderBottom:`1px solid ${C.border}`, background:C.surface, display:"flex", flexWrap:"wrap", alignItems:"center", gap:10 }}>
-            <span style={{ fontSize:11, color:C.muted }}>Compare to benchmark</span>
+            <span style={{ fontSize:11, color:C.muted }}>Compare depth chart</span>
             <select
-              value={compareBenchmarkId ?? ""}
-              onChange={e => setCompareBenchmarkId(e.target.value || null)}
+              value={compareRosterId ?? ""}
+              onChange={e => setCompareRosterId(e.target.value || null)}
               style={{ background:C.card, border:`1px solid ${C.border}`, color:C.text, borderRadius:6, padding:"5px 10px", fontSize:11, minWidth:200, cursor:"pointer" }}
             >
               <option value="">None</option>
-              {benchmarkLibrary.map(r => (
+              {compareRosterOptions.map(r => (
                 <option key={r.id} value={r.id}>{r.label}</option>
               ))}
             </select>
-            {compareBenchmarkId && (
-              <button type="button" onClick={() => setCompareBenchmarkId(null)} style={{ fontSize:11, padding:"4px 10px", borderRadius:6, cursor:"pointer", background:"transparent", border:`1px solid ${C.border}`, color:C.muted }}>
+            {compareRosterId && (
+              <button type="button" onClick={() => setCompareRosterId(null)} style={{ fontSize:11, padding:"4px 10px", borderRadius:6, cursor:"pointer", background:"transparent", border:`1px solid ${C.border}`, color:C.muted }}>
                 Clear
               </button>
             )}
@@ -1530,17 +1555,19 @@ export default function IceBoard() {
                 </div>
               )}
             </div>
-            {compareBenchmarkRoster && (
+            {compareRoster && (
               <div style={{ flex:1, minWidth:0, overflowY:"auto", padding:"14px 18px", borderLeft:`1px solid ${C.border}`, background:"#0B0F18" }}>
-                <div style={{ fontSize:10, fontWeight:700, color:C.gold, letterSpacing:0.4, marginBottom:10 }}>BENCHMARK</div>
-                <div style={{ fontSize:12, fontWeight:600, color:C.text, marginBottom:8 }}>{compareBenchmarkRoster.label}</div>
-                {compareBenchmarkRoster.record && (
+                <div style={{ fontSize:10, fontWeight:700, color:selectedCompareOption?.source==="benchmark"?C.gold:selectedCompareOption?.source==="rival"?C.muted:C.accent, letterSpacing:0.4, marginBottom:10 }}>
+                  {selectedCompareOption?.source==="benchmark" ? "BENCHMARK" : selectedCompareOption?.source==="rival" ? "RIVAL" : "WILLIAMS"}
+                </div>
+                <div style={{ fontSize:12, fontWeight:600, color:C.text, marginBottom:8 }}>{compareRoster.label}</div>
+                {compareRoster.record && (
                   <div style={{ ...RECORD_LINE_STYLE, fontSize:13 }}>
-                    Record: {compareBenchmarkRoster.record.w}-{compareBenchmarkRoster.record.l}-{compareBenchmarkRoster.record.t} (W-L-T)
+                    Record: {compareRoster.record.w}-{compareRoster.record.l}-{compareRoster.record.t} (W-L-T)
                   </div>
                 )}
-                <RosterLegend showRef={true} showRival={false} />
-                <RosterGrid roster={compareBenchmarkRoster} />
+                <RosterLegend showRef={selectedCompareOption?.source==="benchmark"} showRival={selectedCompareOption?.source==="rival"} />
+                <RosterGrid roster={compareRoster} />
               </div>
             )}
           </div>
