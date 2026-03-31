@@ -391,6 +391,69 @@ function rosterPlayerStatLine(player) {
   return statParts.join(" · ");
 }
 
+function getProspectPositionBucket(pos) {
+  if (pos === "G") return "G";
+  if (pos === "D" || pos === "LD" || pos === "RD") return "D";
+  return "F";
+}
+
+function getProspectHandedness(prospect) {
+  if (prospect.hand === "L" || prospect.hand === "R") return prospect.hand;
+  return hashStr(prospect.name || "") % 2 === 0 ? "L" : "R";
+}
+
+function getProspectBirthYear(prospect) {
+  if (prospect.birthYear) return Number(prospect.birthYear);
+  const age = Number(prospect.age);
+  if (Number.isNaN(age) || age <= 0) return null;
+  return new Date().getFullYear() - age;
+}
+
+function getProspectLastContactDays(prospect) {
+  const msgs = prospect.messages || [];
+  if (msgs.length === 0) return null;
+  const raw = String(msgs[msgs.length - 1].time || "").trim();
+  if (!raw) return null;
+  if (/^today\b/i.test(raw) || /^(sun|mon|tue|wed|thu|fri|sat)\b/i.test(raw)) return 0;
+
+  const now = new Date();
+  const cleaned = raw.replace(/^Today\s+/i, "").trim();
+  const withYear = cleaned.match(/\b\d{4}\b/) ? cleaned : `${cleaned} ${now.getFullYear()}`;
+  const parsedMs = Date.parse(withYear);
+  if (Number.isNaN(parsedMs)) return null;
+  const diff = now.getTime() - parsedMs;
+  if (diff <= 0) return 0;
+  return Math.floor(diff / 86400000);
+}
+
+function formatProspectCardStatLine(prospect) {
+  const gpRaw = Number(prospect.gp);
+  const gp = Number.isNaN(gpRaw) ? 0 : gpRaw;
+  if (getProspectPositionBucket(prospect.pos) === "G") {
+    const h = hashStr(`${prospect.name || ""}-goalie-card`);
+    const losses = Math.max(1, Math.min(Math.max(gp - 1, 1), 2 + (h % 7)));
+    const wins = Math.max(0, gp - losses);
+
+    let gaa = 2.15 + (h % 18) / 10;
+    let sv = 0.905 + (h % 28) / 1000;
+    const note = String(prospect.note || "");
+    const parsed = note.match(/GAA\s*([\d.]+).*SV%?\s*\.?(\d{3})/i);
+    if (parsed) {
+      gaa = parseFloat(parsed[1]);
+      sv = parseFloat(`0.${parsed[2]}`);
+    }
+    return `${gp}-${wins}-${losses}-${gaa.toFixed(2)}-${sv.toFixed(3).replace(/^0/, "")}`;
+  }
+  const gRaw = Number(prospect.g);
+  const aRaw = Number(prospect.a);
+  const g = Number.isNaN(gRaw) ? 0 : gRaw;
+  const a = Number.isNaN(aRaw) ? 0 : aRaw;
+  const pts = g + a;
+  const pm = statFor(prospect.name || "", prospect.pos || "C").pm;
+  const pmStr = pm >= 0 ? `+${pm}` : `${pm}`;
+  return `${gp}-${g}-${a}-${pts}-${pmStr}`;
+}
+
 // ── Trending feed data ────────────────────────────────────────────────────────
 
 const TRENDING_PIPELINE = [
@@ -411,7 +474,9 @@ const TRENDING_LEAGUE = [
 // ── Pipeline prospects (30 identified, 15 contacted, 8 building, 3 offer) ──────
 
 function mkP(id, name, pos, league, team, age, gp, g, a, ht, wt, evals, note, tier, messages, nudge, notes) {
-  return { id, name, pos, league, team, age, gp, g, a, height:ht, weight:wt, evals, note, tier, messages, nudge, notes };
+  const birthYear = new Date().getFullYear() - Number(age || 0);
+  const hand = hashStr(`${name}-${pos}-${id}`) % 2 === 0 ? "L" : "R";
+  return { id, name, pos, league, team, age, birthYear, hand, gp, g, a, height:ht, weight:wt, evals, note, tier, messages, nudge, notes };
 }
 
 const INITIAL_PROSPECTS = {
@@ -889,20 +954,25 @@ function ProspectCard({ prospect, onClick, selected }) {
   const msgs = prospect.messages?.length || 0;
   const evalCount = prospect.evals?.length || 0;
   const noteCount = prospect.notes?.length || 0;
+  const birthYear = getProspectBirthYear(prospect) ?? "—";
+  const posGroup = getProspectPositionBucket(prospect.pos);
+  const handed = getProspectHandedness(prospect);
+  const statLine = formatProspectCardStatLine(prospect);
   return (
     <div onClick={() => onClick(prospect)} style={{ background:selected?"#1E3048":C.card, border:`1px solid ${selected?C.accent:C.border}`, borderRadius:10, padding:"10px 12px", cursor:"pointer", marginBottom:7 }}>
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:6 }}>
         <div>
           <div style={{ fontWeight:700, fontSize:13, color:C.text, marginBottom:1 }}>{prospect.name}</div>
-          <div style={{ fontSize:10, color:C.muted }}>{prospect.pos} · {prospect.team}</div>
+          <div style={{ fontSize:10, color:C.muted, marginBottom:2 }}>{birthYear} · {posGroup} · {handed}</div>
+          <div style={{ fontSize:10, color:C.accent, fontFamily:"monospace", marginBottom:2 }}>{statLine}</div>
+          <div style={{ fontSize:10, color:C.muted }}>{prospect.team} [{prospect.league}]</div>
         </div>
         <div style={{ display:"flex", flexDirection:"column", alignItems:"flex-end", gap:3 }}>
           <TierBadge tier={prospect.tier} />
           <ScoreRing value={avg} />
         </div>
       </div>
-      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-        <span style={{ fontSize:10, color:C.accent, fontFamily:"monospace" }}>{prospect.g}G {prospect.a}A · {prospect.league}</span>
+      <div style={{ display:"flex", justifyContent:"flex-end", alignItems:"center" }}>
         <div style={{ display:"flex", gap:7 }}>
           {evalCount > 0 && <span style={{ fontSize:10, color:C.purple }}>👁 {evalCount}</span>}
           {noteCount > 0 && <span style={{ fontSize:10, color:C.gold }}>📝 {noteCount}</span>}
@@ -1170,8 +1240,60 @@ export default function IceBoard() {
   const [swapModeRival, setSwapModeRival] = useState(false);
   const [swapPick, setSwapPick] = useState(null);
   const [recruitPickerTarget, setRecruitPickerTarget] = useState(null);
+  const [pipelineSearch, setPipelineSearch] = useState("");
+  const [pipelinePosFilter, setPipelinePosFilter] = useState("all");
+  const [pipelineHandFilter, setPipelineHandFilter] = useState("all");
+  const [pipelineTierFilter, setPipelineTierFilter] = useState("all");
+  const [pipelineLeagueFilter, setPipelineLeagueFilter] = useState("all");
+  const [pipelineMinRating, setPipelineMinRating] = useState("all");
+  const [pipelineBirthYearFilter, setPipelineBirthYearFilter] = useState("all");
+  const [pipelineLastContactFilter, setPipelineLastContactFilter] = useState("all");
 
   const allProspects = Object.values(prospects).flat();
+
+  const pipelineLeagueOptions = useMemo(
+    () => Array.from(new Set(allProspects.map(p => p.league).filter(Boolean))).sort((a, b) => String(a).localeCompare(String(b))),
+    [allProspects]
+  );
+  const pipelineBirthYearOptions = useMemo(
+    () => Array.from(new Set(allProspects.map(getProspectBirthYear).filter(v => v != null))).sort((a, b) => b - a),
+    [allProspects]
+  );
+  const filteredProspects = useMemo(() => {
+    const q = pipelineSearch.trim().toLowerCase();
+    const minRating = pipelineMinRating === "all" ? null : Number(pipelineMinRating);
+    const match = (p) => {
+      if (q) {
+        const hay = `${p.name || ""} ${p.team || ""} ${p.league || ""}`.toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      if (pipelinePosFilter !== "all" && getProspectPositionBucket(p.pos) !== pipelinePosFilter) return false;
+      if (pipelineHandFilter !== "all" && getProspectHandedness(p) !== pipelineHandFilter) return false;
+      if (pipelineTierFilter !== "all" && p.tier !== pipelineTierFilter) return false;
+      if (pipelineLeagueFilter !== "all" && p.league !== pipelineLeagueFilter) return false;
+      if (minRating != null && compositeAvg(avgScores(p.evals)) < minRating) return false;
+      if (pipelineBirthYearFilter !== "all" && String(getProspectBirthYear(p)) !== pipelineBirthYearFilter) return false;
+      if (pipelineLastContactFilter === "never" && (p.messages?.length || 0) > 0) return false;
+      if (pipelineLastContactFilter === "stale30") {
+        const msgCount = p.messages?.length || 0;
+        if (msgCount === 0) return false;
+        const days = getProspectLastContactDays(p);
+        if (days != null && days < 30) return false;
+      }
+      return true;
+    };
+    return Object.fromEntries(Object.entries(prospects).map(([col, list]) => [col, list.filter(match)]));
+  }, [
+    prospects,
+    pipelineSearch,
+    pipelinePosFilter,
+    pipelineHandFilter,
+    pipelineTierFilter,
+    pipelineLeagueFilter,
+    pipelineMinRating,
+    pipelineBirthYearFilter,
+    pipelineLastContactFilter,
+  ]);
 
   function notify(msg) { setNotification(msg); setTimeout(() => setNotification(null), 3000); }
 
@@ -1537,25 +1659,98 @@ export default function IceBoard() {
 
       {/* Pipeline */}
       {activeTab==="pipeline" && (
-        <div style={{ display:"flex", flex:1, overflow:"hidden" }}>
-          <div style={{ flex:1, display:"flex", overflow:"hidden" }}>
-            {COLUMNS.map(col => (
-              <div key={col.key} style={{ flex:1, borderRight:`1px solid ${C.border}`, display:"flex", flexDirection:"column", minWidth:0 }}>
-                <div style={{ padding:"10px 12px", borderBottom:`1px solid ${C.border}`, display:"flex", justifyContent:"space-between", alignItems:"center", flexShrink:0 }}>
-                  <div style={{ display:"flex", alignItems:"center", gap:6 }}><div style={{ width:6, height:6, borderRadius:"50%", background:col.color }} /><span style={{ fontSize:9, fontWeight:700, color:C.text, letterSpacing:0.5 }}>{col.label.toUpperCase()}</span></div>
-                  <span style={{ fontSize:9, color:C.muted, background:C.card, padding:"1px 5px", borderRadius:8, border:`1px solid ${C.border}` }}>{prospects[col.key].length}</span>
-                </div>
-                <div style={{ padding:9, overflowY:"auto", flex:1 }}>
-                  {prospects[col.key].map(p => <ProspectCard key={p.id} prospect={p} onClick={setSelected} selected={selected?.id===p.id} />)}
-                </div>
-              </div>
-            ))}
-          </div>
-          {liveSelected && (
-            <div style={{ width:320, minWidth:320, display:"flex", flexDirection:"column", overflow:"hidden" }}>
-              <ProspectDetail prospect={liveSelected} onClose={() => setSelected(null)} onMove={moveProspect} onSend={sendMessage} onAddEval={addEval} onSetNudge={setNudge} onAddNote={addNote} />
+        <div style={{ display:"flex", flex:1, flexDirection:"column", overflow:"hidden" }}>
+          <div style={{ background:C.surface, borderBottom:`1px solid ${C.border}`, padding:"7px 16px", display:"flex", gap:10, alignItems:"center", flexWrap:"wrap" }}>
+            <div style={{ display:"flex", alignItems:"center", gap:6 }}>
+              <span style={{ fontSize:10, color:C.muted }}>Search</span>
+              <input
+                value={pipelineSearch}
+                onChange={e => setPipelineSearch(e.target.value)}
+                placeholder="Name, team, league"
+                style={{ width:170, background:C.card, border:`1px solid ${C.border}`, color:C.text, borderRadius:6, padding:"4px 8px", fontSize:11, outline:"none" }}
+              />
             </div>
-          )}
+            <div style={{ display:"flex", alignItems:"center", gap:6 }}>
+              <span style={{ fontSize:10, color:C.muted }}>Position</span>
+              <select value={pipelinePosFilter} onChange={e => setPipelinePosFilter(e.target.value)} style={{ background:C.card, border:`1px solid ${C.border}`, color:C.text, borderRadius:6, padding:"4px 6px", fontSize:11 }}>
+                <option value="all">All</option><option value="F">F</option><option value="D">D</option><option value="G">G</option>
+              </select>
+            </div>
+            <div style={{ display:"flex", alignItems:"center", gap:6 }}>
+              <span style={{ fontSize:10, color:C.muted }}>Hand</span>
+              <select value={pipelineHandFilter} onChange={e => setPipelineHandFilter(e.target.value)} style={{ background:C.card, border:`1px solid ${C.border}`, color:C.text, borderRadius:6, padding:"4px 6px", fontSize:11 }}>
+                <option value="all">All</option><option value="L">L</option><option value="R">R</option>
+              </select>
+            </div>
+            <div style={{ display:"flex", alignItems:"center", gap:6 }}>
+              <span style={{ fontSize:10, color:C.muted }}>Tier</span>
+              <select value={pipelineTierFilter} onChange={e => setPipelineTierFilter(e.target.value)} style={{ background:C.card, border:`1px solid ${C.border}`, color:C.text, borderRadius:6, padding:"4px 6px", fontSize:11 }}>
+                <option value="all">All</option><option value="A">A</option><option value="B">B</option><option value="C">C</option>
+              </select>
+            </div>
+            <div style={{ display:"flex", alignItems:"center", gap:6 }}>
+              <span style={{ fontSize:10, color:C.muted }}>League</span>
+              <select value={pipelineLeagueFilter} onChange={e => setPipelineLeagueFilter(e.target.value)} style={{ background:C.card, border:`1px solid ${C.border}`, color:C.text, borderRadius:6, padding:"4px 6px", fontSize:11, minWidth:105 }}>
+                <option value="all">All</option>
+                {pipelineLeagueOptions.map(lg => <option key={lg} value={lg}>{lg}</option>)}
+              </select>
+            </div>
+            <div style={{ display:"flex", alignItems:"center", gap:6 }}>
+              <span style={{ fontSize:10, color:C.muted }}>Min Rating</span>
+              <select value={pipelineMinRating} onChange={e => setPipelineMinRating(e.target.value)} style={{ background:C.card, border:`1px solid ${C.border}`, color:C.text, borderRadius:6, padding:"4px 6px", fontSize:11 }}>
+                <option value="all">All</option><option value="3.0">3.0</option><option value="3.5">3.5</option><option value="4.0">4.0</option><option value="4.5">4.5</option>
+              </select>
+            </div>
+            <div style={{ display:"flex", alignItems:"center", gap:6 }}>
+              <span style={{ fontSize:10, color:C.muted }}>Birth Year</span>
+              <select value={pipelineBirthYearFilter} onChange={e => setPipelineBirthYearFilter(e.target.value)} style={{ background:C.card, border:`1px solid ${C.border}`, color:C.text, borderRadius:6, padding:"4px 6px", fontSize:11, minWidth:84 }}>
+                <option value="all">All</option>
+                {pipelineBirthYearOptions.map(y => <option key={y} value={String(y)}>{y}</option>)}
+              </select>
+            </div>
+            <div style={{ display:"flex", alignItems:"center", gap:6 }}>
+              <span style={{ fontSize:10, color:C.muted }}>Last Contact</span>
+              <select value={pipelineLastContactFilter} onChange={e => setPipelineLastContactFilter(e.target.value)} style={{ background:C.card, border:`1px solid ${C.border}`, color:C.text, borderRadius:6, padding:"4px 6px", fontSize:11 }}>
+                <option value="all">All</option><option value="stale30">30+ Days Ago</option><option value="never">Never Contacted</option>
+              </select>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setPipelineSearch("");
+                setPipelinePosFilter("all");
+                setPipelineHandFilter("all");
+                setPipelineTierFilter("all");
+                setPipelineLeagueFilter("all");
+                setPipelineMinRating("all");
+                setPipelineBirthYearFilter("all");
+                setPipelineLastContactFilter("all");
+              }}
+              style={{ background:"none", border:"none", color:C.accent, fontSize:11, cursor:"pointer", padding:0, textDecoration:"underline", marginLeft:"auto" }}
+            >
+              Clear Filters
+            </button>
+          </div>
+          <div style={{ display:"flex", flex:1, overflow:"hidden" }}>
+            <div style={{ flex:1, display:"flex", overflow:"hidden" }}>
+              {COLUMNS.map(col => (
+                <div key={col.key} style={{ flex:1, borderRight:`1px solid ${C.border}`, display:"flex", flexDirection:"column", minWidth:0 }}>
+                  <div style={{ padding:"10px 12px", borderBottom:`1px solid ${C.border}`, display:"flex", justifyContent:"space-between", alignItems:"center", flexShrink:0 }}>
+                    <div style={{ display:"flex", alignItems:"center", gap:6 }}><div style={{ width:6, height:6, borderRadius:"50%", background:col.color }} /><span style={{ fontSize:9, fontWeight:700, color:C.text, letterSpacing:0.5 }}>{col.label.toUpperCase()}</span></div>
+                    <span style={{ fontSize:9, color:C.muted, background:C.card, padding:"1px 5px", borderRadius:8, border:`1px solid ${C.border}` }}>{filteredProspects[col.key].length}</span>
+                  </div>
+                  <div style={{ padding:9, overflowY:"auto", flex:1 }}>
+                    {filteredProspects[col.key].map(p => <ProspectCard key={p.id} prospect={p} onClick={setSelected} selected={selected?.id===p.id} />)}
+                  </div>
+                </div>
+              ))}
+            </div>
+            {liveSelected && (
+              <div style={{ width:320, minWidth:320, display:"flex", flexDirection:"column", overflow:"hidden" }}>
+                <ProspectDetail prospect={liveSelected} onClose={() => setSelected(null)} onMove={moveProspect} onSend={sendMessage} onAddEval={addEval} onSetNudge={setNudge} onAddNote={addNote} />
+              </div>
+            )}
+          </div>
         </div>
       )}
 
