@@ -442,7 +442,7 @@ function formatProspectCardStatLine(prospect) {
       gaa = parseFloat(parsed[1]);
       sv = parseFloat(`0.${parsed[2]}`);
     }
-    return `${gp}-${wins}-${losses}-${gaa.toFixed(2)}-${sv.toFixed(3).replace(/^0/, "")}`;
+    return `${gp} GP - ${wins} W - ${losses} L - ${gaa.toFixed(2)} GAA - ${sv.toFixed(3).replace(/^0/, "")} SV%`;
   }
   const gRaw = Number(prospect.g);
   const aRaw = Number(prospect.a);
@@ -451,7 +451,7 @@ function formatProspectCardStatLine(prospect) {
   const pts = g + a;
   const pm = statFor(prospect.name || "", prospect.pos || "C").pm;
   const pmStr = pm >= 0 ? `+${pm}` : `${pm}`;
-  return `${gp}-${g}-${a}-${pts}-${pmStr}`;
+  return `${gp} GP - ${g} G - ${a} A - ${pts} PTS - ${pmStr}`;
 }
 
 // ── Trending feed data ────────────────────────────────────────────────────────
@@ -511,6 +511,21 @@ const INITIAL_PROSPECTS = {
     mkP(28,"L. Gustafsson","RW","USHL","Fargo Force",18,41,8,12,"6'1\"","183",[mkEval("e1","Jan 22","USHL game",3,3,3,3,3)],"Steady but nothing jumps out","C",[],null,[]),
     mkP(29,"M. Tikkanen","D","NAHL","Corpus Christi IceRays",19,39,2,7,"6'2\"","201",[mkEval("e1","Dec 20","NAHL game",2,3,4,3,3)],"Needs another viewing before decision","C",[],null,[]),
     mkP(30,"N. Lehkonen","LW","CCHL","Pembroke Lumber Kings",18,34,5,7,"6'0\"","180",[mkEval("e1","Jan 28","CCHL game",3,3,3,3,3)],"Added to board after showcase tip","C",[],null,[]),
+    mkP(31,"O. Cormier","C","USHL","Green Bay Gamblers",21,44,17,20,"6'0\"","188",[mkEval("e1","Nov 4","USHL weekend set",4,4,3,4,4)],"2005 center still in juniors — strong pace and details","B",[],null,[]),
+    mkP(32,"P. Savard","RW","NAHL","Janesville Jets",21,42,14,16,"6'1\"","186",[mkEval("e1","Dec 9","NAHL game",3,4,3,4,4)],"Direct winger, wins races, reliable F3 habits","B",[],null,[]),
+    mkP(33,"Q. Halme","LD","OJHL","Milton Menace",21,41,5,17,"6'2\"","201",[mkEval("e1","Oct 27","OJHL game",4,3,4,4,3)],"Mobile left-shot D with clean first pass","B",[],null,[]),
+    mkP(34,"R. Belliveau","G","BCHL","Coquitlam Express",21,31,0,1,"6'3\"","196",[mkEval("e1","Jan 11","BCHL road game",4,4,4,4,4)],"2005 goalie remains eligible this cycle; composed and square","A",[],null,[]),
+    mkP(35,"S. Andersson","LW","CCHL","Rockland Nationals",21,40,13,19,"5'11\"","181",[mkEval("e1","Nov 19","CCHL game",4,4,3,4,4)],"Quick release and disruptive forecheck routes","B",[],null,[]),
+    mkP(36,"T. Ouellette","C","BCHL","Cranbrook Bucks",21,39,11,18,"6'0\"","184",[mkEval("e1","Dec 2","BCHL game",3,4,3,4,3)],"Veteran 2005 center with solid faceoff value","B",[],null,[]),
+    mkP(37,"U. Kaskinen","RD","USHL","Des Moines Buccaneers",21,43,4,14,"6'2\"","204",[mkEval("e1","Oct 14","USHL game",3,3,4,4,4)],"Length and reach project well in defensive-zone work","C",[],null,[]),
+    mkP(38,"V. Dupuis","RW","OJHL","Collingwood Blues",21,38,12,13,"6'0\"","183",[mkEval("e1","Jan 6","OJHL game",3,4,3,3,4)],"Compete-heavy winger who can slide up lineup","C",[],null,[]),
+    mkP(39,"W. Nadeau","LD","NAHL","Odessa Jackalopes",21,40,3,11,"6'3\"","207",[mkEval("e1","Nov 30","NAHL game",3,3,5,3,3)],"Big 2005 defender, still adding footspeed","C",[],null,[]),
+    mkP(40,"X. Rintala","G","USHL","Lincoln Stars",21,28,0,2,"6'2\"","192",[mkEval("e1","Dec 16","USHL game",3,4,4,4,4)],"Tracks pucks well through traffic; late-bloom profile","B",[],null,[]),
+    mkP(41,"Y. Marchese","LW","BCHL","Trail Smoke Eaters",21,41,15,18,"6'1\"","187",[mkEval("e1","Oct 21","BCHL game",4,4,3,4,4)],"North-south winger with power-play net-front value","B",[],null,[]),
+    mkP(42,"Z. Lemieux","C","OJHL","Trenton Golden Hawks",21,42,16,22,"5'11\"","180",[mkEval("e1","Jan 20","OJHL game",4,4,3,5,4)],"2005 playmaking center, competitive and mature","A",[],null,[]),
+    mkP(43,"A. Vasiliev","RD","CCHL","Nepean Raiders",21,39,2,12,"6'2\"","200",[mkEval("e1","Nov 12","CCHL game",3,3,4,4,3)],"Right-shot D with calm retrieval habits","B",[],null,[]),
+    mkP(44,"B. Pellerin","RW","NAHL","Minot Minotauros",21,40,10,14,"6'0\"","185",[mkEval("e1","Dec 28","NAHL game",3,4,3,3,4)],"2005 winger still junior-eligible, good motor and detail","C",[],null,[]),
+    mkP(45,"C. Johansen","LW","USHL","Madison Capitols",21,43,18,21,"6'1\"","189",[mkEval("e1","Feb 3","USHL game",4,4,3,4,4)],"Older junior scorer with proven finishing touch","A",[],null,[]),
   ],
   contacted: [
     mkP(101,"Ryan Kowalski","G","OJHL","Georgetown Raiders",19,30,0,2,"6'3\"","195",[mkEval("e1","Oct 19","OJHL showcase",4,4,4,4,5),mkEval("e2","Jan 25","Georgetown vs. Aurora",4,4,4,4,5)],"GAA 2.41 SV% .921 — very coachable","A",[{id:1,from:"coach",text:"Hey Ryan, Coach Davis here. Loved watching you against Guelph — would love to hop on a quick call this week. When works?",time:"Mon 9:14am"},{id:2,from:"prospect",text:"Hey Coach! Thursday afternoon works great, anytime after 3pm",time:"Mon 11:32am"},{id:3,from:"coach",text:"Perfect — Thursday at 4pm. Looking forward to it.",time:"Mon 11:45am"}],null,[{id:"n1",text:"Great call Thursday. Very mature for 19. Academic interest in econ/finance — good Williams fit. Wants to visit in April.",date:"Mar 21, 2025",time:"4:45pm"}]),
