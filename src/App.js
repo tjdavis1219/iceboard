@@ -6,16 +6,75 @@ const SCHOOLS = ["Williams College","Middlebury College","Trinity College","Bowd
 const DIMS = ["skating","skill","size","sense","spirit"];
 const DIM_LABELS = { skating:"Skating", skill:"Skill", size:"Size/Strength", sense:"Sense", spirit:"Spirit" };
 const COLUMNS = [
-  { key:"identified",  label:"Identified",            color:"#64748B" },
-  { key:"contacted",   label:"Contact Made",           color:"#0EA5E9" },
-  { key:"building",    label:"Building Relationship",  color:"#F59E0B" },
-  { key:"offer",       label:"Offer Extended",         color:"#10B981" },
+  { key:"identified",  label:"Identified",            color:"#7F96B7" },
+  { key:"contacted",   label:"Contact Made",          color:"#00AEEF" },
+  { key:"building",    label:"Building Relationship", color:"#FFC20E" },
+  { key:"offer",       label:"Offer Extended",        color:"#22C7A9" },
 ];
 const C = {
-  bg:"#0A0E1A", surface:"#111827", card:"#1A2235", border:"#1E2D45",
-  accent:"#0EA5E9", gold:"#F59E0B", green:"#10B981", red:"#EF4444",
-  purple:"#A855F7", text:"#F1F5F9", muted:"#64748B",
+  bg:"#061A33", surface:"#0A2346", card:"#102E57", border:"#1D4370",
+  accent:"#00AEEF", gold:"#FFC20E", green:"#22C7A9", red:"#F25F5C",
+  purple:"#8B7CFF", text:"#F5FAFF", muted:"#8EA8C8",
 };
+
+const SCHOOL_THEMES = {
+  default: {
+    colors: { bg:"#061A33", surface:"#0A2346", card:"#102E57", border:"#1D4370", accent:"#00AEEF", gold:"#FFC20E", green:"#22C7A9", red:"#F25F5C", purple:"#8B7CFF", text:"#F5FAFF", muted:"#8EA8C8" },
+    pipeline: { identified:"#7F96B7", contacted:"#00AEEF", building:"#FFC20E", offer:"#22C7A9" },
+  },
+  "Williams College": {
+    colors: { bg:"#1E0F3F", surface:"#2A1660", card:"#35207A", border:"#5A44A1", accent:"#FFB81C", gold:"#FFB81C", green:"#22C7A9", red:"#E76F51", purple:"#9B8CE4", text:"#F8F5FF", muted:"#C9BFE8" },
+    pipeline: { identified:"#B8A9E6", contacted:"#9B8CE4", building:"#FFB81C", offer:"#22C7A9" },
+  },
+  "Middlebury College": {
+    colors: { bg:"#071D3A", surface:"#0A2A52", card:"#103B6F", border:"#215488", accent:"#6EC1FF", gold:"#F9D65A", green:"#27C4A8", red:"#F46A6A", purple:"#8FA4FF", text:"#F3F9FF", muted:"#9CB9D7" },
+    pipeline: { identified:"#90A9C8", contacted:"#6EC1FF", building:"#F9D65A", offer:"#27C4A8" },
+  },
+  "Trinity College": {
+    colors: { bg:"#071527", surface:"#0B213A", card:"#123050", border:"#23456D", accent:"#64B5FF", gold:"#D9B24C", green:"#1FC0A5", red:"#E76B6B", purple:"#8C9BFF", text:"#F2F8FF", muted:"#9FB1C8" },
+    pipeline: { identified:"#8AA0BE", contacted:"#64B5FF", building:"#D9B24C", offer:"#1FC0A5" },
+  },
+  "Bowdoin College": {
+    colors: { bg:"#1A1010", surface:"#251616", card:"#322020", border:"#5A3A3A", accent:"#D34A4A", gold:"#E2C98B", green:"#2BB8A0", red:"#E45757", purple:"#A58CFF", text:"#FFF7F7", muted:"#C9A8A8" },
+    pipeline: { identified:"#A49191", contacted:"#D34A4A", building:"#E2C98B", offer:"#2BB8A0" },
+  },
+  "Hamilton College": {
+    colors: { bg:"#0A1630", surface:"#102243", card:"#16315A", border:"#294A74", accent:"#CFAE4D", gold:"#CFAE4D", green:"#25C3A8", red:"#E66B6B", purple:"#8FA0FF", text:"#F5FAFF", muted:"#A6B7D0" },
+    pipeline: { identified:"#93A5C0", contacted:"#71A6FF", building:"#CFAE4D", offer:"#25C3A8" },
+  },
+  "Colby College": {
+    colors: { bg:"#07172F", surface:"#0B2448", card:"#11345F", border:"#214D79", accent:"#74A9FF", gold:"#E4C65A", green:"#25C4A9", red:"#EC6D6D", purple:"#8FA0FF", text:"#F4F9FF", muted:"#9DB4D3" },
+    pipeline: { identified:"#90A7C6", contacted:"#74A9FF", building:"#E4C65A", offer:"#25C4A9" },
+  },
+  "Amherst College": {
+    colors: { bg:"#1A1132", surface:"#251A47", card:"#30235E", border:"#4C3A80", accent:"#9E86FF", gold:"#F2CC5C", green:"#2AC4AB", red:"#E86E76", purple:"#B09BFF", text:"#F8F5FF", muted:"#BEB1D9" },
+    pipeline: { identified:"#A79ABF", contacted:"#9E86FF", building:"#F2CC5C", offer:"#2AC4AB" },
+  },
+  "Wesleyan University": {
+    colors: { bg:"#2A111C", surface:"#3A1726", card:"#4A1F31", border:"#70405A", accent:"#C9557B", gold:"#EACB62", green:"#2AC3A7", red:"#DF5F76", purple:"#B08BFF", text:"#FFF6FA", muted:"#D4A9B9" },
+    pipeline: { identified:"#B59AA4", contacted:"#C9557B", building:"#EACB62", offer:"#2AC3A7" },
+  },
+  "Tufts University": {
+    colors: { bg:"#0B1730", surface:"#12244A", card:"#1A3566", border:"#325687", accent:"#66B7FF", gold:"#F0D06A", green:"#2CC7AB", red:"#F07070", purple:"#95A6FF", text:"#F4FAFF", muted:"#A6BDD9" },
+    pipeline: { identified:"#95ABC8", contacted:"#66B7FF", building:"#F0D06A", offer:"#2CC7AB" },
+  },
+  "Bates College": {
+    colors: { bg:"#230D17", surface:"#321223", card:"#451A2F", border:"#6A314C", accent:"#B83D62", gold:"#E5C764", green:"#2ABDA5", red:"#D8546F", purple:"#AA8CFF", text:"#FFF6FA", muted:"#D0A7B8" },
+    pipeline: { identified:"#AD95A0", contacted:"#B83D62", building:"#E5C764", offer:"#2ABDA5" },
+  },
+  "Connecticut College": {
+    colors: { bg:"#0A1B34", surface:"#10284A", card:"#173A63", border:"#2B5985", accent:"#6BAFEA", gold:"#D9B85B", green:"#28C0A6", red:"#E66F6F", purple:"#94A5FF", text:"#F4FAFF", muted:"#A8BDD8" },
+    pipeline: { identified:"#94A9C5", contacted:"#6BAFEA", building:"#D9B85B", offer:"#28C0A6" },
+  },
+};
+
+function applySchoolTheme(school) {
+  const theme = SCHOOL_THEMES[school] || SCHOOL_THEMES.default;
+  Object.assign(C, theme.colors);
+  COLUMNS.forEach(col => {
+    if (theme.pipeline[col.key]) col.color = theme.pipeline[col.key];
+  });
+}
 /** Team record line under War Room / Rival rosters */
 const RECORD_LINE_STYLE = { fontSize: 15, fontWeight: 600, color: "#CBD5E1", marginBottom: 14, letterSpacing: 0.2, fontVariantNumeric: "tabular-nums" };
 
@@ -1263,6 +1322,8 @@ export default function IceBoard() {
   const [pipelineMinRating, setPipelineMinRating] = useState("all");
   const [pipelineBirthYearFilter, setPipelineBirthYearFilter] = useState("all");
   const [pipelineLastContactFilter, setPipelineLastContactFilter] = useState("all");
+
+  applySchoolTheme(school);
 
   const allProspects = Object.values(prospects).flat();
 
