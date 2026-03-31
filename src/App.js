@@ -311,6 +311,78 @@ function cloneBenchmarkTemplate(id, label) {
   };
 }
 
+function mergeRosterEdit(base, edit) {
+  if (!edit) return base;
+  return {
+    ...base,
+    forwards: edit.forwards ?? base.forwards,
+    defense: edit.defense ?? base.defense,
+    goalies: edit.goalies ?? base.goalies,
+  };
+}
+
+/** Forward/defense/goalie slot vs pipeline prospect position */
+function posMatchesSlot(slotPos, prospectPos) {
+  if (slotPos === "G" || prospectPos === "G") return prospectPos === "G";
+  const fwd = new Set(["LW", "C", "RW"]);
+  const def = new Set(["LD", "RD", "D"]);
+  if (fwd.has(slotPos) && fwd.has(prospectPos)) return true;
+  if (def.has(slotPos) && def.has(prospectPos)) return true;
+  return false;
+}
+
+function rosterSectionArray(roster, section) {
+  if (section === "forwards") return roster.forwards;
+  if (section === "defense") return roster.defense;
+  return roster.goalies;
+}
+
+/** Map a pipeline prospect onto a depth-chart slot (Fr., pipeline stats). */
+function prospectToRosterPlayer(prospect, slotPos) {
+  const s = statFor(prospect.name, slotPos);
+  const leagueTag = prospect.league ? String(prospect.league).trim() : "";
+  if (slotPos === "G") {
+    return {
+      name: prospect.name,
+      pos: "G",
+      yr: "Fr",
+      hand: "L",
+      ht: prospect.height || "6'2\"",
+      gp: prospect.gp ?? 0,
+      g: "",
+      a: "",
+      extra: "",
+      status: "current",
+      prospectId: prospect.id,
+      prospectLeague: leagueTag,
+      pm: s.pm,
+    };
+  }
+  return {
+    name: prospect.name,
+    pos: slotPos,
+    yr: "Fr",
+    hand: "L",
+    ht: prospect.height || "6'0\"",
+    gp: prospect.gp ?? 0,
+    g: prospect.g ?? 0,
+    a: prospect.a ?? 0,
+    extra: "",
+    status: "current",
+    prospectId: prospect.id,
+    prospectLeague: leagueTag,
+    pm: s.pm,
+  };
+}
+
+function collectPlacedProspectIds(roster) {
+  const ids = new Set();
+  [...roster.forwards, ...roster.defense, ...roster.goalies].forEach(p => {
+    if (p.prospectId != null) ids.add(p.prospectId);
+  });
+  return ids;
+}
+
 // ── Trending feed data ────────────────────────────────────────────────────────
 
 const TRENDING_PIPELINE = [
@@ -422,13 +494,15 @@ function ScoreBar({ value }) {
 
 // ── Roster components ────────────────────────────────────────────────────────
 
-function PlayerSlot({ player }) {
+function PlayerSlot({ player, swapMode, swapSelected, onSlotClick, recruitPlacement, onAddRecruit, onRemoveRecruit }) {
   const isOpen = player.status === "open";
   const isRef = player.status === "ref";
   const isRival = player.status === "rival";
+  const isPipeline = player.prospectId != null;
   const yrDot = { Sr:C.red, Jr:"#F97316", So:C.accent, Fr:C.green };
   const topBorder = isOpen ? C.border+"33" : isRef ? C.gold+"88" : isRival ? C.border+"AA" : C.accent;
   const borderColor = isOpen ? C.border+"55" : C.border;
+  const swapHighlight = Boolean(swapSelected);
   const statParts = getPlayerStatParts(player);
   const detailLineColor = "#94A3B8";
   const detailFont = 12.5;
@@ -437,6 +511,9 @@ function PlayerSlot({ player }) {
   if (player.hand) detailParts.push({ kind: "txt", text: player.hand });
   if (player.ht) detailParts.push({ kind: "txt", text: player.ht });
   if (statParts) statParts.forEach((t, i) => detailParts.push({ kind: "txt", text: t, key: `s${i}` }));
+  if (isPipeline && player.prospectLeague) {
+    detailParts.push({ kind: "txt", text: `(${player.prospectLeague})`, key: "lg" });
+  }
 
   const dotSep = (
     <span style={{ color:"#64748B", opacity:0.85, fontSize:11, lineHeight:1, padding:"0 0.2em", userSelect:"none", flexShrink:0 }} aria-hidden>
@@ -444,12 +521,81 @@ function PlayerSlot({ player }) {
     </span>
   );
 
+  const showAddRecruit = recruitPlacement && isOpen && onAddRecruit && !swapMode;
+  const showRemovePipeline = !swapMode && isPipeline && onRemoveRecruit;
+
   return (
-    <div style={{ background:isOpen?"transparent":C.card, border:`1px solid ${borderColor}`, borderTop:`2px solid ${topBorder}`, borderRadius:8, padding:"7px 9px", minHeight:56 }}>
+    <div
+      onClick={swapMode && onSlotClick ? onSlotClick : undefined}
+      onKeyDown={swapMode && onSlotClick ? e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onSlotClick(); } } : undefined}
+      role={swapMode && onSlotClick ? "button" : undefined}
+      tabIndex={swapMode && onSlotClick ? 0 : undefined}
+      style={{
+        position: "relative",
+        background:isOpen?"transparent":C.card,
+        border:`1px solid ${swapHighlight ? C.accent : borderColor}`,
+        boxShadow: swapHighlight ? `0 0 0 2px ${C.accent}66` : undefined,
+        borderTop:`2px solid ${topBorder}`,
+        borderRadius:8,
+        padding:"7px 9px",
+        minHeight:56,
+        cursor: swapMode && onSlotClick ? "pointer" : undefined,
+        outline: "none",
+      }}
+    >
+      {showRemovePipeline && (
+        <button
+          type="button"
+          title="Remove from lineup"
+          onClick={e => { e.stopPropagation(); onRemoveRecruit(); }}
+          style={{
+            position: "absolute",
+            top: 4,
+            right: 4,
+            width: 22,
+            height: 22,
+            padding: 0,
+            lineHeight: "20px",
+            fontSize: 14,
+            borderRadius: 4,
+            border: `1px solid ${C.border}`,
+            background: C.surface,
+            color: C.muted,
+            cursor: "pointer",
+            zIndex: 2,
+          }}
+        >
+          ×
+        </button>
+      )}
       <div style={{ fontSize:9, color:C.muted, letterSpacing:1, marginBottom:3 }}>{player.pos}</div>
-      {isOpen ? <div style={{ fontSize:10, color:C.muted+"99", fontStyle:"italic" }}>Open</div> : (
+      {isOpen ? (
+        <div>
+          <div style={{ fontSize:10, color:C.muted+"99", fontStyle:"italic" }}>Open</div>
+          {showAddRecruit && (
+            <button
+              type="button"
+              onClick={e => { e.stopPropagation(); onAddRecruit(); }}
+              style={{
+                marginTop: 6,
+                width: "100%",
+                padding: "5px 6px",
+                borderRadius: 5,
+                fontSize: 10,
+                fontWeight: 600,
+                cursor: "pointer",
+                border: `1px solid ${C.accent}88`,
+                background: "#0C1A2A",
+                color: C.accent,
+              }}
+            >
+              + Add recruit
+            </button>
+          )}
+        </div>
+      ) : (
         <>
-          <div style={{ fontSize:12, fontWeight:700, color:C.text, lineHeight:1.25, marginBottom:6 }}>{player.name}</div>
+          <div style={{ fontSize:12, fontWeight:700, color:C.text, lineHeight:1.25, marginBottom:6, paddingRight: showRemovePipeline ? 20 : 0 }}>{player.name}</div>
           <div
             style={{
               display:"flex",
@@ -481,18 +627,74 @@ function PlayerSlot({ player }) {
   );
 }
 
-function RosterGrid({ roster }) {
+function RosterGrid({ roster, swapMode, swapPick, rosterKey, onSlotClick, recruitPlacement, onAddRecruit, onRemoveRecruit }) {
   const fwdLines = [[0,3],[3,6],[6,9],[9,12]].map(([s,e]) => roster.forwards.slice(s,e));
   const defLines = [[0,2],[2,4],[4,6]].map(([s,e]) => roster.defense.slice(s,e));
+  const sel = swapPick;
+  const isSel = (section, idx) =>
+    Boolean(sel && rosterKey && sel.rosterKey === rosterKey && sel.section === section && sel.index === idx);
   return (
     <div>
       <SecLabel title="Forwards" />
-      {fwdLines.map((line,i) => <div key={i} style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:5, marginBottom:5 }}>{line.map((p,j) => <PlayerSlot key={j} player={p} />)}</div>)}
+      {fwdLines.map((line, lineIdx) => {
+        const base = [0,3,6,9][lineIdx];
+        return (
+          <div key={lineIdx} style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:5, marginBottom:5 }}>
+            {line.map((p, j) => {
+              const idx = base + j;
+              return (
+                <PlayerSlot
+                  key={`f-${idx}`}
+                  player={p}
+                  swapMode={swapMode}
+                  swapSelected={isSel("forwards", idx)}
+                  onSlotClick={onSlotClick ? () => onSlotClick("forwards", idx) : undefined}
+                  recruitPlacement={recruitPlacement}
+                  onAddRecruit={onAddRecruit ? () => onAddRecruit("forwards", idx) : undefined}
+                  onRemoveRecruit={onRemoveRecruit && p.prospectId != null ? () => onRemoveRecruit("forwards", idx) : undefined}
+                />
+              );
+            })}
+          </div>
+        );
+      })}
       <SecLabel title="Defense" mt="12px" />
-      {defLines.map((pair,i) => <div key={i} style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:5, marginBottom:5 }}>{pair.map((p,j) => <PlayerSlot key={j} player={p} />)}</div>)}
+      {defLines.map((pair, lineIdx) => {
+        const base = [0,2,4][lineIdx];
+        return (
+          <div key={lineIdx} style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:5, marginBottom:5 }}>
+            {pair.map((p, j) => {
+              const idx = base + j;
+              return (
+                <PlayerSlot
+                  key={`d-${idx}`}
+                  player={p}
+                  swapMode={swapMode}
+                  swapSelected={isSel("defense", idx)}
+                  onSlotClick={onSlotClick ? () => onSlotClick("defense", idx) : undefined}
+                  recruitPlacement={recruitPlacement}
+                  onAddRecruit={onAddRecruit ? () => onAddRecruit("defense", idx) : undefined}
+                  onRemoveRecruit={onRemoveRecruit && p.prospectId != null ? () => onRemoveRecruit("defense", idx) : undefined}
+                />
+              );
+            })}
+          </div>
+        );
+      })}
       <SecLabel title="Goalies" mt="12px" />
       <div style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:5 }}>
-        {roster.goalies.map((p,i) => <PlayerSlot key={i} player={p} />)}
+        {roster.goalies.map((p, i) => (
+          <PlayerSlot
+            key={`g-${i}`}
+            player={p}
+            swapMode={swapMode}
+            swapSelected={isSel("goalies", i)}
+            onSlotClick={onSlotClick ? () => onSlotClick("goalies", i) : undefined}
+            recruitPlacement={recruitPlacement}
+            onAddRecruit={onAddRecruit ? () => onAddRecruit("goalies", i) : undefined}
+            onRemoveRecruit={onRemoveRecruit && p.prospectId != null ? () => onRemoveRecruit("goalies", i) : undefined}
+          />
+        ))}
       </div>
     </div>
   );
@@ -515,6 +717,74 @@ function RosterLegend({ showRef, showRival }) {
       ))}
       {showRef && <div style={{ display:"flex", alignItems:"center", gap:4 }}><div style={{ width:7, height:7, borderRadius:2, background:C.gold+"55", border:`1px solid ${C.gold}` }} /><span style={{ fontSize:10, color:C.muted }}>Benchmark</span></div>}
       {showRival && <div style={{ display:"flex", alignItems:"center", gap:4 }}><div style={{ width:7, height:7, borderRadius:2, background:C.border, border:`1px solid ${C.border}` }} /><span style={{ fontSize:10, color:C.muted }}>Rival</span></div>}
+    </div>
+  );
+}
+
+function RecruitPickerModal({ slotPos, prospects, onPick, onClose }) {
+  const tierOrder = { A: 0, B: 1, C: 2 };
+  const sorted = [...prospects].sort((a, b) => (tierOrder[a.tier] ?? 9) - (tierOrder[b.tier] ?? 9) || String(a.name).localeCompare(String(b.name)));
+  return (
+    <div
+      style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 1001, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}
+      onClick={onClose}
+      role="presentation"
+    >
+      <div
+        style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 9, padding: 16, maxWidth: 420, width: "100%", maxHeight: "85vh", display: "flex", flexDirection: "column" }}
+        onClick={e => e.stopPropagation()}
+        role="dialog"
+        aria-labelledby="recruit-picker-title"
+      >
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}>
+          <div>
+            <div id="recruit-picker-title" style={{ fontSize: 14, fontWeight: 700, color: C.text }}>Add pipeline recruit</div>
+            <div style={{ fontSize: 11, color: C.muted, marginTop: 4 }}>Slot: {slotPos} · Fr. year · same stats as pipeline card</div>
+          </div>
+          <button type="button" onClick={onClose} style={{ background: "none", border: "none", color: C.muted, cursor: "pointer", fontSize: 20, lineHeight: 1, padding: 4 }} aria-label="Close">
+            ×
+          </button>
+        </div>
+        <div style={{ flex: 1, overflowY: "auto", minHeight: 120 }}>
+          {sorted.length === 0 ? (
+            <div style={{ fontSize: 12, color: C.muted, padding: "12px 0", textAlign: "center" }}>No matching prospects for this slot (check position), or all are already placed on this lineup.</div>
+          ) : (
+            sorted.map(p => {
+              const avg = compositeAvg(avgScores(p.evals));
+              return (
+                <button
+                  key={p.id}
+                  type="button"
+                  onClick={() => onPick(p)}
+                  style={{
+                    display: "flex",
+                    width: "100%",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    gap: 10,
+                    padding: "10px 11px",
+                    marginBottom: 6,
+                    borderRadius: 7,
+                    border: `1px solid ${C.border}`,
+                    background: C.card,
+                    cursor: "pointer",
+                    textAlign: "left",
+                  }}
+                >
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: C.text }}>{p.name}</div>
+                    <div style={{ fontSize: 10, color: C.muted }}>{p.pos} · {p.team} · {p.league}</div>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+                    <TierBadge tier={p.tier} />
+                    <ScoreRing value={avg} size={28} />
+                  </div>
+                </button>
+              );
+            })
+          )}
+        </div>
+      </div>
     </div>
   );
 }
@@ -801,6 +1071,11 @@ export default function IceBoard() {
   const [warRoomModal, setWarRoomModal] = useState(null);
   const [rivalTab, setRivalTab] = useState(0);
   const [notification, setNotification] = useState(null);
+  const [rosterEdits, setRosterEdits] = useState({});
+  const [swapModeWar, setSwapModeWar] = useState(false);
+  const [swapModeRival, setSwapModeRival] = useState(false);
+  const [swapPick, setSwapPick] = useState(null);
+  const [recruitPickerTarget, setRecruitPickerTarget] = useState(null);
 
   const allProspects = Object.values(prospects).flat();
 
@@ -884,6 +1159,147 @@ export default function IceBoard() {
   const currentWarRoster = warRoomRosters.find(r => r.id === warRoomTabId) || warRoomRosters[0];
   const compareBenchmarkRoster = compareBenchmarkId ? benchmarkLibrary.find(r => r.id === compareBenchmarkId) : null;
   const activeBenchmarkRoster = benchmarkLibrary.find(x => x.id === benchmarkTabId) || benchmarkLibrary[0];
+
+  const rivalRosterKey = `rival-${rivalTab}`;
+  const displayWarRoster = useMemo(
+    () => mergeRosterEdit(currentWarRoster, rosterEdits[warRoomTabId]),
+    [currentWarRoster, rosterEdits, warRoomTabId]
+  );
+  const displayRivalRoster = useMemo(
+    () => mergeRosterEdit(RIVAL_ROSTERS[rivalTab], rosterEdits[rivalRosterKey]),
+    [rivalTab, rosterEdits, rivalRosterKey]
+  );
+
+  const warRoomAllowsRecruits = Boolean(currentWarRoster?.warRoomKind && currentWarRoster.warRoomKind !== "current");
+
+  const recruitPickerCandidates = useMemo(() => {
+    if (!recruitPickerTarget) return [];
+    const slotPlayer = rosterSectionArray(displayWarRoster, recruitPickerTarget.section)[recruitPickerTarget.index];
+    const slotPos = slotPlayer.pos;
+    const placed = collectPlacedProspectIds(displayWarRoster);
+    return allProspects.filter(p => posMatchesSlot(slotPos, p.pos) && !placed.has(p.id));
+  }, [recruitPickerTarget, displayWarRoster, allProspects]);
+
+  function applyProspectToSlot(rosterKey, baseRoster, section, index, prospect) {
+    setRosterEdits(prev => {
+      const merged = mergeRosterEdit(baseRoster, prev[rosterKey]);
+      const forwards = [...merged.forwards];
+      const defense = [...merged.defense];
+      const goalies = [...merged.goalies];
+      const arr = section === "forwards" ? forwards : section === "defense" ? defense : goalies;
+      const slotPos = arr[index].pos;
+      arr[index] = prospectToRosterPlayer(prospect, slotPos);
+      return { ...prev, [rosterKey]: { forwards, defense, goalies } };
+    });
+  }
+
+  function removeRecruitFromSlot(rosterKey, baseRoster, section, index) {
+    setRosterEdits(prev => {
+      const merged = mergeRosterEdit(baseRoster, prev[rosterKey]);
+      const forwards = [...merged.forwards];
+      const defense = [...merged.defense];
+      const goalies = [...merged.goalies];
+      const arr = section === "forwards" ? forwards : section === "defense" ? defense : goalies;
+      if (arr[index].prospectId == null) return prev;
+      const slotPos = arr[index].pos;
+      arr[index] = op(slotPos);
+      return { ...prev, [rosterKey]: { forwards, defense, goalies } };
+    });
+  }
+
+  function performSwap(rosterKey, baseRoster, a, b) {
+    setRosterEdits(prev => {
+      const merged = mergeRosterEdit(baseRoster, prev[rosterKey]);
+      const forwards = [...merged.forwards];
+      const defense = [...merged.defense];
+      const goalies = [...merged.goalies];
+      const getArr = (s) => (s === "forwards" ? forwards : s === "defense" ? defense : goalies);
+      const pa = getArr(a.section)[a.index];
+      const pb = getArr(b.section)[b.index];
+      getArr(a.section)[a.index] = pb;
+      getArr(b.section)[b.index] = pa;
+      return { ...prev, [rosterKey]: { forwards, defense, goalies } };
+    });
+  }
+
+  function handleWarRoomSlotClick(section, index) {
+    const rk = warRoomTabId;
+    const base = currentWarRoster;
+    if (!swapPick) {
+      setSwapPick({ rosterKey: rk, section, index });
+      return;
+    }
+    if (swapPick.rosterKey !== rk) {
+      setSwapPick({ rosterKey: rk, section, index });
+      return;
+    }
+    if (swapPick.section === section && swapPick.index === index) {
+      setSwapPick(null);
+      return;
+    }
+    performSwap(rk, base, { section: swapPick.section, index: swapPick.index }, { section, index });
+    setSwapPick(null);
+  }
+
+  function handleRivalSlotClick(section, index) {
+    const rk = rivalRosterKey;
+    const base = RIVAL_ROSTERS[rivalTab];
+    if (!swapPick) {
+      setSwapPick({ rosterKey: rk, section, index });
+      return;
+    }
+    if (swapPick.rosterKey !== rk) {
+      setSwapPick({ rosterKey: rk, section, index });
+      return;
+    }
+    if (swapPick.section === section && swapPick.index === index) {
+      setSwapPick(null);
+      return;
+    }
+    performSwap(rk, base, { section: swapPick.section, index: swapPick.index }, { section, index });
+    setSwapPick(null);
+  }
+
+  function handleWarRoomAddRecruit(section, index) {
+    setRecruitPickerTarget({ section, index });
+  }
+
+  function handleWarRoomRemoveRecruit(section, index) {
+    removeRecruitFromSlot(warRoomTabId, currentWarRoster, section, index);
+    notify("Removed from projection lineup");
+  }
+
+  function handlePickRecruit(prospect) {
+    if (!recruitPickerTarget) return;
+    const { section, index } = recruitPickerTarget;
+    const slot = rosterSectionArray(displayWarRoster, section)[index];
+    if (slot.status !== "open") {
+      notify("That slot is no longer open — try again");
+      setRecruitPickerTarget(null);
+      return;
+    }
+    if (!posMatchesSlot(slot.pos, prospect.pos)) {
+      notify("Position does not match this slot");
+      return;
+    }
+    applyProspectToSlot(warRoomTabId, currentWarRoster, section, index, prospect);
+    setRecruitPickerTarget(null);
+    notify(`✓ ${prospect.name} added to projection`);
+  }
+
+  useEffect(() => {
+    setSwapPick(null);
+    setRecruitPickerTarget(null);
+  }, [warRoomTabId, rivalTab]);
+
+  useEffect(() => {
+    if (!recruitPickerTarget) return;
+    function onKey(e) {
+      if (e.key === "Escape") setRecruitPickerTarget(null);
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [recruitPickerTarget]);
 
   useEffect(() => {
     if (warRoomRosters.length && !warRoomRosters.some(r => r.id === warRoomTabId)) {
@@ -1052,13 +1468,46 @@ export default function IceBoard() {
           <div style={{ flex:1, display:"flex", minHeight:0, overflow:"hidden" }}>
             <div style={{ flex:1, minWidth:0, overflowY:"auto", padding:"14px 18px" }}>
               <div style={{ fontSize:10, fontWeight:700, color:C.muted, letterSpacing:0.4, marginBottom:10 }}>YOUR ROSTER</div>
-              {currentWarRoster.record && (
+              {displayWarRoster.record && (
                 <div style={RECORD_LINE_STYLE}>
-                  Record: {currentWarRoster.record.w}-{currentWarRoster.record.l}-{currentWarRoster.record.t} (W-L-T)
+                  Record: {displayWarRoster.record.w}-{displayWarRoster.record.l}-{displayWarRoster.record.t} (W-L-T)
                 </div>
               )}
               <RosterLegend showRef={false} showRival={false} />
-              <RosterGrid roster={currentWarRoster} />
+              <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:10, flexWrap:"wrap" }}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSwapModeWar(v => {
+                      if (v) setSwapPick(sp => (sp && sp.rosterKey === warRoomTabId ? null : sp));
+                      return !v;
+                    });
+                  }}
+                  style={{
+                    fontSize: 11,
+                    fontWeight: 600,
+                    padding: "6px 12px",
+                    borderRadius: 6,
+                    cursor: "pointer",
+                    border: `1px solid ${swapModeWar ? C.accent : C.border}`,
+                    background: swapModeWar ? "#0C1A2A" : "transparent",
+                    color: swapModeWar ? C.accent : C.muted,
+                  }}
+                >
+                  Swap Players
+                </button>
+                {swapModeWar && <span style={{ fontSize:10, color:C.muted }}>Click two slots to swap</span>}
+              </div>
+              <RosterGrid
+                roster={displayWarRoster}
+                swapMode={swapModeWar}
+                swapPick={swapPick}
+                rosterKey={warRoomTabId}
+                onSlotClick={swapModeWar ? handleWarRoomSlotClick : undefined}
+                recruitPlacement={warRoomAllowsRecruits}
+                onAddRecruit={warRoomAllowsRecruits ? handleWarRoomAddRecruit : undefined}
+                onRemoveRecruit={warRoomAllowsRecruits ? handleWarRoomRemoveRecruit : undefined}
+              />
               {warRoomTabId === "williams-2627" && (
                 <div style={{ marginTop:18 }}>
                   <div style={{ fontSize:10, fontWeight:700, color:C.text, letterSpacing:0.5, marginBottom:8 }}>A LIST RECRUITS — PIPELINE OVERLAY</div>
@@ -1116,15 +1565,54 @@ export default function IceBoard() {
             {RIVAL_ROSTERS.map((r,i) => <button key={i} onClick={() => setRivalTab(i)} style={{ background:"none", border:"none", cursor:"pointer", padding:"7px 14px", fontSize:11, fontWeight:600, color:rivalTab===i?C.accent:C.muted, borderBottom:`2px solid ${rivalTab===i?C.accent:"transparent"}`, whiteSpace:"nowrap" }}>{r.label}</button>)}
           </div>
           <div style={{ flex:1, overflowY:"auto", padding:"14px 18px" }}>
-            {RIVAL_ROSTERS[rivalTab].record && (
+            {displayRivalRoster.record && (
               <div style={RECORD_LINE_STYLE}>
-                Record: {RIVAL_ROSTERS[rivalTab].record.w}-{RIVAL_ROSTERS[rivalTab].record.l}-{RIVAL_ROSTERS[rivalTab].record.t} (W-L-T)
+                Record: {displayRivalRoster.record.w}-{displayRivalRoster.record.l}-{displayRivalRoster.record.t} (W-L-T)
               </div>
             )}
             <RosterLegend showRef={false} showRival={true} />
-            <RosterGrid roster={RIVAL_ROSTERS[rivalTab]} />
+            <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:10, flexWrap:"wrap" }}>
+              <button
+                type="button"
+                onClick={() => {
+                  setSwapModeRival(v => {
+                    if (v) setSwapPick(sp => (sp && sp.rosterKey === rivalRosterKey ? null : sp));
+                    return !v;
+                  });
+                }}
+                style={{
+                  fontSize: 11,
+                  fontWeight: 600,
+                  padding: "6px 12px",
+                  borderRadius: 6,
+                  cursor: "pointer",
+                  border: `1px solid ${swapModeRival ? C.accent : C.border}`,
+                  background: swapModeRival ? "#0C1A2A" : "transparent",
+                  color: swapModeRival ? C.accent : C.muted,
+                }}
+              >
+                Swap Players
+              </button>
+              {swapModeRival && <span style={{ fontSize:10, color:C.muted }}>Click two slots to swap</span>}
+            </div>
+            <RosterGrid
+              roster={displayRivalRoster}
+              swapMode={swapModeRival}
+              swapPick={swapPick}
+              rosterKey={rivalRosterKey}
+              onSlotClick={swapModeRival ? handleRivalSlotClick : undefined}
+            />
           </div>
         </div>
+      )}
+
+      {recruitPickerTarget && warRoomAllowsRecruits && activeTab === "warroom" && (
+        <RecruitPickerModal
+          slotPos={rosterSectionArray(displayWarRoster, recruitPickerTarget.section)[recruitPickerTarget.index].pos}
+          prospects={recruitPickerCandidates}
+          onPick={handlePickRecruit}
+          onClose={() => setRecruitPickerTarget(null)}
+        />
       )}
 
       {/* Benchmarks — ECAC reference rosters + custom templates */}
