@@ -10,6 +10,7 @@ const COLUMNS = [
   { key:"contacted",   label:"Contact Made",          color:"#00AEEF" },
   { key:"building",    label:"Building Relationship", color:"#FFC20E" },
   { key:"offer",       label:"Offer Extended",        color:"#22C7A9" },
+  { key:"committed",   label:"Committed",             color:"#34D399" },
 ];
 const C = {
   bg:"#061A33", surface:"#0A2346", card:"#102E57", border:"#1D4370",
@@ -20,7 +21,7 @@ const C = {
 const SCHOOL_THEMES = {
   default: {
     colors: { bg:"#061A33", surface:"#0A2346", card:"#102E57", border:"#1D4370", accent:"#00AEEF", gold:"#FFC20E", green:"#22C7A9", red:"#F25F5C", purple:"#8B7CFF", text:"#F5FAFF", muted:"#8EA8C8" },
-    pipeline: { identified:"#7F96B7", contacted:"#00AEEF", building:"#FFC20E", offer:"#22C7A9" },
+    pipeline: { identified:"#7F96B7", contacted:"#00AEEF", building:"#FFC20E", offer:"#22C7A9", committed:"#34D399" },
   },
   "Williams College": {
     colors: { bg:"#1E0F3F", surface:"#2A1660", card:"#35207A", border:"#5A44A1", accent:"#FFB81C", gold:"#FFB81C", green:"#22C7A9", red:"#E76F51", purple:"#9B8CE4", text:"#F8F5FF", muted:"#C9BFE8" },
@@ -72,7 +73,7 @@ function applySchoolTheme(school) {
   const theme = SCHOOL_THEMES[school] || SCHOOL_THEMES.default;
   Object.assign(C, theme.colors);
   COLUMNS.forEach(col => {
-    if (theme.pipeline[col.key]) col.color = theme.pipeline[col.key];
+    col.color = theme.pipeline[col.key] || SCHOOL_THEMES.default.pipeline[col.key] || col.color;
   });
 }
 /** Team record line under War Room / Rival rosters */
@@ -485,6 +486,44 @@ function getProspectLastContactDays(prospect) {
   return Math.floor(diff / 86400000);
 }
 
+function formatStrategySeason(startYear) {
+  const end2 = String((startYear + 1) % 100).padStart(2, "0");
+  return `${startYear}-${end2}`;
+}
+
+/** Map roster season label to next recruiting class season. */
+function classSeasonFromRosterLabel(label) {
+  const m = String(label || "").match(/'(\d{2})-'(\d{2})/);
+  if (!m) return null;
+  const start = 2000 + Number(m[2]);
+  return formatStrategySeason(start);
+}
+
+function countGraduatingByPosition(roster) {
+  const out = { F: 0, D: 0, G: 0 };
+  if (!roster) return out;
+  [...roster.forwards, ...roster.defense, ...roster.goalies].forEach(p => {
+    if (p.status === "open" || p.yr !== "Sr") return;
+    out[getProspectPositionBucket(p.pos)] += 1;
+  });
+  return out;
+}
+
+function defaultStrategyClassConfig(grads) {
+  const positional_targets = {
+    F: Math.max(1, grads.F || 0),
+    D: Math.max(1, grads.D || 0),
+    G: Math.max(1, grads.G || 0),
+  };
+  const total_slots = positional_targets.F + positional_targets.D + positional_targets.G;
+  return {
+    total_slots,
+    positional_targets,
+    band_limits: { A: null, B: 3, C: 1 },
+    bands_enabled: true,
+  };
+}
+
 function formatProspectCardStatLine(prospect) {
   const gpRaw = Number(prospect.gp);
   const gp = Number.isNaN(gpRaw) ? 0 : gpRaw;
@@ -535,7 +574,16 @@ const TRENDING_LEAGUE = [
 function mkP(id, name, pos, league, team, age, gp, g, a, ht, wt, evals, note, tier, messages, nudge, notes) {
   const birthYear = new Date().getFullYear() - Number(age || 0);
   const hand = hashStr(`${name}-${pos}-${id}`) % 2 === 0 ? "L" : "R";
-  return { id, name, pos, league, team, age, birthYear, hand, gp, g, a, height:ht, weight:wt, evals, note, tier, messages, nudge, notes };
+  return {
+    id, name, pos, league, team, age, birthYear, hand, gp, g, a, height:ht, weight:wt, evals, note, tier, messages, nudge, notes,
+    academic_band: null,
+    financial_aid_status: "Unknown",
+    country: "USA",
+    target_class_season: null,
+    pinned_to_strategy: false,
+    committed_at: null,
+    conditional_commit: false,
+  };
 }
 
 const INITIAL_PROSPECTS = {
@@ -613,7 +661,8 @@ const INITIAL_PROSPECTS = {
     mkP(207,"V. Laaksonen","C","NAHL","Corpus Christi IceRays",18,42,14,20,"5'11\"","179",[mkEval("e1","Oct 15","NAHL showcase",4,4,2,5,3),mkEval("e2","Feb 10","Corpus Christi home game",4,4,3,5,4)],"Elite hockey sense, size the only question","A",[{id:1,from:"coach",text:"Ville — Coach Davis. Your hockey IQ is off the charts.",time:"Jan 28, 9:00am"},{id:2,from:"prospect",text:"Coach, Williams has been on my radar for a while!",time:"Jan 28, 10:00am"},{id:3,from:"coach",text:"Let's talk. Tuesday at 5?",time:"Jan 28, 10:30am"},{id:4,from:"prospect",text:"Perfect.",time:"Jan 28, 10:45am"},{id:5,from:"coach",text:"Great call Tuesday — campus visit in the works.",time:"Feb 4, 9:00am"},{id:6,from:"prospect",text:"Looking forward to it!",time:"Feb 4, 10:00am"}],null,[{id:"n1",text:"NAHL coach called proactively — said Ville is the smartest player he's coached in 10 years.",date:"Feb 2, 2025",time:"3:30pm"}]),
     mkP(208,"W. Soininen","D","OJHL","Mississauga Chargers",19,38,4,14,"6'2\"","202",[mkEval("e1","Nov 3","OJHL showcase",3,3,4,4,4),mkEval("e2","Jan 18","Mississauga home game",4,3,4,4,4)],"Reliable two-way D, improving each month","B",[{id:1,from:"coach",text:"Waltteri — Coach Davis. Two viewings in and you're exactly the D profile we're recruiting.",time:"Jan 20, 9:00am"},{id:2,from:"prospect",text:"Thank you Coach! Really excited to hear from you.",time:"Jan 20, 11:00am"},{id:3,from:"coach",text:"Let's connect this week.",time:"Jan 20, 11:30am"},{id:4,from:"prospect",text:"Thursday afternoon works.",time:"Jan 20, 12:00pm"}],"Mar 2026",[]),
   ],
-  offer: [
+  offer: [],
+  committed: [
     mkP(301,"Ben Ashworth","D","NAHL","New Mexico Ice Wolves",19,42,8,22,"6'1\"","198",[mkEval("e1","Oct 5","NAHL Showcase",4,4,4,4,5),mkEval("e2","Dec 14","New Mexico home game",4,4,4,5,5)],"Committed — waiting on paperwork","A",[{id:1,from:"coach",text:"Ben — Coach Davis. So excited about the offer!",time:"Mar 1, 8:30am"},{id:2,from:"prospect",text:"I'm thrilled. Williams has been a dream.",time:"Mar 1, 9:15am"},{id:3,from:"coach",text:"Take your time. We're here for any questions.",time:"Mar 1, 9:20am"},{id:4,from:"prospect",text:"Coach — I'm committing to Williams! Super excited 🎉",time:"Mar 8, 4:02pm"},{id:5,from:"coach",text:"BEN!! Welcome to the family!",time:"Mar 8, 4:05pm"}],null,[{id:"n1",text:"Parents very involved — his dad played D3 at Plattsburgh. Include them in all communication.",date:"Feb 28, 2025",time:"10:00am"}]),
     mkP(302,"X. Niemela","C","BCHL","Penticton Vees",19,39,18,24,"6'0\"","185",[mkEval("e1","Oct 15","BCHL showcase",4,4,3,5,4),mkEval("e2","Jan 8","Penticton home game",5,4,3,5,4),mkEval("e3","Feb 20","BCHL playoffs",5,5,3,5,5)],"Offer accepted — elite playmaker, best center in this class","A",[{id:1,from:"coach",text:"Xander — offer call was outstanding. We are so excited to have you.",time:"Mar 10, 9:00am"},{id:2,from:"prospect",text:"Coach, this was the easiest decision I've ever made. Williams is perfect.",time:"Mar 10, 10:00am"},{id:3,from:"coach",text:"That means the world. Let's get the paperwork moving.",time:"Mar 10, 10:30am"}],null,[{id:"n1",text:"Best player in BCHL by advanced metrics this year. Several NESCAC programs after him — act fast.",date:"Jan 15, 2025",time:"9:00am"},{id:"n2",text:"Verbal commitment confirmed. Emailed his family. Parents are thrilled.",date:"Mar 12, 2025",time:"11:00am"}]),
     mkP(303,"Y. Korhonen","LW","OJHL","Aurora Tigers",19,37,14,19,"6'1\"","186",[mkEval("e1","Nov 10","OJHL showcase",4,4,3,4,4),mkEval("e2","Feb 8","Aurora playoff run",4,5,3,5,5)],"Offer verbally accepted — skilled winger with elite compete level","A",[{id:1,from:"coach",text:"Yianni — just wanted to say again how thrilled we are.",time:"Mar 5, 9:00am"},{id:2,from:"prospect",text:"Coach, Williams was always my dream school. Can't wait.",time:"Mar 5, 10:00am"}],null,[{id:"n1",text:"Brother played at Bowdoin — family very familiar with NESCAC culture.",date:"Feb 25, 2025",time:"2:00pm"}]),
@@ -1022,7 +1071,7 @@ function RecruitPickerModal({ slotPos, prospects, onPick, onClose }) {
 
 // ── Pipeline card ────────────────────────────────────────────────────────────
 
-function ProspectCard({ prospect, onClick, selected }) {
+function ProspectCard({ prospect, onClick, selected, currentStrategySeason, onPinToStrategy }) {
   const scores = avgScores(prospect.evals);
   const avg = compositeAvg(scores);
   const msgs = prospect.messages?.length || 0;
@@ -1042,6 +1091,27 @@ function ProspectCard({ prospect, onClick, selected }) {
           <div style={{ fontSize:10, color:C.muted }}>{prospect.team} [{prospect.league}]</div>
         </div>
         <div style={{ display:"flex", flexDirection:"column", alignItems:"flex-end", gap:3 }}>
+          {onPinToStrategy && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onPinToStrategy(prospect.id, currentStrategySeason);
+              }}
+              style={{
+                background: prospect.pinned_to_strategy ? "#0C2A1A" : "transparent",
+                border: `1px solid ${prospect.pinned_to_strategy ? C.green : C.border}`,
+                color: prospect.pinned_to_strategy ? C.green : C.muted,
+                borderRadius: 5,
+                fontSize: 9,
+                fontWeight: 700,
+                padding: "3px 6px",
+                cursor: "pointer",
+              }}
+            >
+              {prospect.pinned_to_strategy ? "Pinned ✓" : "Pin to Strategy"}
+            </button>
+          )}
           <TierBadge tier={prospect.tier} />
           <ScoreRing value={avg} />
         </div>
@@ -1208,7 +1278,7 @@ function NudgeTab({ prospect, onSetNudge }) {
   );
 }
 
-function ProspectDetail({ prospect, onClose, onMove, onSend, onAddEval, onSetNudge, onAddNote }) {
+function ProspectDetail({ prospect, onClose, onMove, onSend, onAddEval, onSetNudge, onAddNote, onPinToStrategy, currentStrategySeason }) {
   const [tab, setTab] = useState("evals");
   const msgs = prospect.messages||[];
   const evalCount = prospect.evals?.length||0;
@@ -1223,7 +1293,27 @@ function ProspectDetail({ prospect, onClose, onMove, onSend, onAddEval, onSetNud
             <div style={{ fontSize:17, fontWeight:800, color:C.text }}>{prospect.name}</div>
             <div style={{ fontSize:11, color:C.muted }}>{prospect.team} · Age {prospect.age}</div>
           </div>
-          <button onClick={onClose} style={{ background:"none", border:"none", color:C.muted, cursor:"pointer", fontSize:18 }}>×</button>
+          <div style={{ display:"flex", alignItems:"center", gap:6 }}>
+            {onPinToStrategy && (
+              <button
+                type="button"
+                onClick={() => onPinToStrategy(prospect.id, currentStrategySeason)}
+                style={{
+                  background: prospect.pinned_to_strategy ? "#0C2A1A" : "transparent",
+                  border: `1px solid ${prospect.pinned_to_strategy ? C.green : C.border}`,
+                  color: prospect.pinned_to_strategy ? C.green : C.muted,
+                  borderRadius: 6,
+                  cursor: "pointer",
+                  fontSize: 10,
+                  fontWeight: 700,
+                  padding: "4px 7px",
+                }}
+              >
+                {prospect.pinned_to_strategy ? "Pinned ✓" : "Pin to Strategy"}
+              </button>
+            )}
+            <button onClick={onClose} style={{ background:"none", border:"none", color:C.muted, cursor:"pointer", fontSize:18 }}>×</button>
+          </div>
         </div>
         <div style={{ display:"flex", overflowX:"auto" }}>
           {TABS.map(([t,l]) => <button key={t} onClick={() => setTab(t)} style={{ background:"none", border:"none", cursor:"pointer", padding:"6px 11px", fontSize:11, fontWeight:600, color:tab===t?C.accent:C.muted, borderBottom:`2px solid ${tab===t?C.accent:"transparent"}`, whiteSpace:"nowrap" }}>{l}</button>)}
@@ -1291,13 +1381,159 @@ function TrendingTab({ allProspects }) {
   );
 }
 
+function StrategyBoardTab({
+  seasons,
+  season,
+  onSeasonChange,
+  classConfig,
+  onCreateClassConfig,
+  onUpdateClassConfig,
+  graduating,
+  slotsSummary,
+  slotsByPosition,
+  activeTargets,
+  onSelectProspect,
+}) {
+  const statusColor = {
+    filled: C.green,
+    pending: C.gold,
+    targeted: C.accent,
+    open: C.muted,
+    conditional: "#F97316",
+  };
+  const statusLabel = {
+    filled: "FILLED",
+    pending: "PENDING",
+    targeted: "TARGETED",
+    open: "OPEN",
+    conditional: "CONDITIONAL",
+  };
+
+  if (!classConfig) {
+    return (
+      <div style={{ flex:1, overflowY:"auto", padding:"16px 18px" }}>
+        <div style={{ maxWidth:520, background:C.card, border:`1px solid ${C.border}`, borderRadius:10, padding:14 }}>
+          <div style={{ fontSize:14, fontWeight:700, color:C.text, marginBottom:8 }}>Set up recruiting class</div>
+          <div style={{ fontSize:11, color:C.muted, marginBottom:12 }}>
+            Define slots for {season}. Graduating pull suggests {graduating.F}F / {graduating.D}D / {graduating.G}G.
+          </div>
+          <button
+            type="button"
+            onClick={() => onCreateClassConfig(defaultStrategyClassConfig(graduating))}
+            style={{ background:C.accent, border:"none", color:"#fff", borderRadius:6, padding:"8px 12px", fontSize:12, fontWeight:600, cursor:"pointer" }}
+          >
+            Use Suggested Setup
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  const positionGroups = [["F","FORWARDS"],["D","DEFENSE"],["G","GOALIES"]];
+
+  return (
+    <div style={{ flex:1, display:"flex", minHeight:0 }}>
+      <div style={{ flex:1, overflowY:"auto", padding:"14px 18px" }}>
+        <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:10, padding:12, marginBottom:12 }}>
+          <div style={{ display:"flex", gap:10, alignItems:"center", flexWrap:"wrap", marginBottom:8 }}>
+            <div style={{ fontSize:11, color:C.muted }}>Season</div>
+            <select value={season} onChange={e => onSeasonChange(e.target.value)} style={{ background:C.card, border:`1px solid ${C.border}`, color:C.text, borderRadius:6, padding:"5px 8px", fontSize:11 }}>
+              {seasons.map(s => <option key={s} value={s}>{s}</option>)}
+            </select>
+            <div style={{ fontSize:11, color:C.muted }}>Graduating after this season: {graduating.F}F, {graduating.D}D, {graduating.G}G</div>
+          </div>
+          <div style={{ display:"flex", gap:8, flexWrap:"wrap", marginBottom:10 }}>
+            {[
+              [`${classConfig.total_slots} total`, C.muted],
+              [`${slotsSummary.filled} filled`, C.green],
+              [`${slotsSummary.pending} pending`, C.gold],
+              [`${slotsSummary.open} open`, C.muted],
+            ].map(([txt, col]) => (
+              <div key={txt} style={{ fontSize:11, fontWeight:700, color:col, background:C.card, border:`1px solid ${C.border}`, borderRadius:7, padding:"4px 8px" }}>{txt}</div>
+            ))}
+          </div>
+          <div style={{ display:"flex", gap:10, flexWrap:"wrap", alignItems:"center" }}>
+            <div style={{ fontSize:10, color:C.muted }}>Targets</div>
+            {["F","D","G"].map(pos => (
+              <label key={pos} style={{ fontSize:10, color:C.muted }}>
+                {pos}
+                <input
+                  type="number"
+                  min={0}
+                  value={classConfig.positional_targets[pos]}
+                  onChange={e => onUpdateClassConfig(cfg => ({ ...cfg, positional_targets: { ...cfg.positional_targets, [pos]: Math.max(0, Number(e.target.value) || 0) } }))}
+                  style={{ width:46, marginLeft:5, background:C.card, border:`1px solid ${C.border}`, color:C.text, borderRadius:5, padding:"2px 4px", fontSize:11 }}
+                />
+              </label>
+            ))}
+          </div>
+        </div>
+
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(3,minmax(220px,1fr))", gap:10 }}>
+          {positionGroups.map(([posKey, title]) => (
+            <div key={posKey} style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:10, padding:10 }}>
+              <div style={{ fontSize:10, color:C.muted, fontWeight:700, letterSpacing:0.5, marginBottom:8 }}>{title} ({slotsByPosition[posKey].length})</div>
+              {slotsByPosition[posKey].map((slot, idx) => (
+                <div key={`${posKey}-${idx}`} style={{ border:`1px solid ${statusColor[slot.state]}55`, borderLeft:`3px solid ${statusColor[slot.state]}`, borderRadius:8, background:C.card, padding:"8px 9px", marginBottom:7 }}>
+                  <div style={{ display:"flex", justifyContent:"space-between", gap:8 }}>
+                    <div style={{ fontSize:9, color:statusColor[slot.state], fontWeight:700, letterSpacing:0.6 }}>{statusLabel[slot.state]}</div>
+                    <div style={{ fontSize:9, color:C.muted }}>{posKey} SLOT {idx + 1}</div>
+                  </div>
+                  {slot.prospect ? (
+                    <>
+                      <div style={{ fontSize:12, fontWeight:700, color:C.text, marginTop:4 }}>{slot.prospect.name}</div>
+                      <div style={{ fontSize:10, color:C.muted }}>{getProspectPositionBucket(slot.prospect.pos)} · {getProspectHandedness(slot.prospect)} · {slot.prospect.team}</div>
+                      <div style={{ fontSize:10, color:C.muted, marginTop:2 }}>Band: {slot.prospect.academic_band || "—"} · Aid: {slot.prospect.financial_aid_status || "Unknown"}</div>
+                    </>
+                  ) : (
+                    <div style={{ fontSize:10, color:C.muted, marginTop:5 }}>Need: {posKey} · {slot.targetPoolCount} targets</div>
+                  )}
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
+
+        <div style={{ marginTop:12, background:C.surface, border:`1px solid ${C.border}`, borderRadius:10, padding:10 }}>
+          <div style={{ fontSize:10, color:C.muted, fontWeight:700, marginBottom:6 }}>CONSTRAINT TRACKER</div>
+          <div style={{ fontSize:11, color:C.text }}>
+            Positions: F {slotsSummary.openByPos.F} open · D {slotsSummary.openByPos.D} open · G {slotsSummary.openByPos.G} open
+          </div>
+          {classConfig.bands_enabled && (
+            <div style={{ fontSize:11, color:C.text, marginTop:4 }}>
+              Bands Remaining: A {slotsSummary.bandRemaining.A == null ? "unlimited" : slotsSummary.bandRemaining.A} · B {slotsSummary.bandRemaining.B} · C {slotsSummary.bandRemaining.C}
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div style={{ width:320, minWidth:320, borderLeft:`1px solid ${C.border}`, background:"#0B1E3A", display:"flex", flexDirection:"column", minHeight:0 }}>
+        <div style={{ padding:"10px 12px", borderBottom:`1px solid ${C.border}`, fontSize:11, fontWeight:700, color:C.text }}>ACTIVE TARGETS</div>
+        <div style={{ flex:1, overflowY:"auto", padding:10 }}>
+          {activeTargets.length === 0 ? (
+            <div style={{ color:C.muted, fontSize:11, textAlign:"center", paddingTop:20 }}>No active targets for this class.</div>
+          ) : activeTargets.map(t => (
+            <button key={t.id} type="button" onClick={() => onSelectProspect(t)} style={{ width:"100%", textAlign:"left", background:C.card, border:`1px solid ${C.border}`, borderRadius:8, padding:"8px 9px", marginBottom:6, cursor:"pointer" }}>
+              <div style={{ fontSize:12, fontWeight:700, color:C.text }}>{t.name}</div>
+              <div style={{ fontSize:10, color:C.muted }}>{t.team} · {t.league}</div>
+              <div style={{ fontSize:10, color:C.muted, marginTop:3 }}>
+                {({ identified:"Identified", contacted:"Contact Made", building:"Building Relationship", offer:"Offer Extended" }[t._stage] || t._stage)} · Band {t.academic_band || "—"} · Aid {t.financial_aid_status || "Unknown"}
+              </div>
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Main App ──────────────────────────────────────────────────────────────────
 
 export default function IceBoard() {
   const [school, setSchool] = useState("Williams College");
   const [prospects, setProspects] = useState(INITIAL_PROSPECTS);
   const [selected, setSelected] = useState(null);
-  const [activeTab, setActiveTab] = useState("pipeline");
+  const [activeTab, setActiveTab] = useState("strategy");
   const [warRoomTabId, setWarRoomTabId] = useState("williams-2526");
   const [futureProjections, setFutureProjections] = useState([]);
   const [customWarRosters, setCustomWarRosters] = useState([]);
@@ -1322,6 +1558,8 @@ export default function IceBoard() {
   const [pipelineMinRating, setPipelineMinRating] = useState("all");
   const [pipelineBirthYearFilter, setPipelineBirthYearFilter] = useState("all");
   const [pipelineLastContactFilter, setPipelineLastContactFilter] = useState("all");
+  const [strategySeason, setStrategySeason] = useState(() => formatStrategySeason(new Date().getFullYear() + 1));
+  const [strategyClasses, setStrategyClasses] = useState({});
 
   applySchoolTheme(school);
 
@@ -1371,6 +1609,101 @@ export default function IceBoard() {
     pipelineLastContactFilter,
   ]);
 
+  const strategySeasons = useMemo(() => {
+    const y = new Date().getFullYear() + 1;
+    return [formatStrategySeason(y), formatStrategySeason(y + 1), formatStrategySeason(y + 2)];
+  }, []);
+
+  const prospectsWithStage = useMemo(
+    () => Object.entries(prospects).flatMap(([stage, list]) => list.map(p => ({ ...p, _stage: stage }))),
+    [prospects]
+  );
+
+  const strategySourceRoster = useMemo(() => {
+    const candidates = [
+      WILLIAMS_CURRENT_SEASON,
+      { ...MY_ROSTER, id: "williams-2627", warRoomKind: "projection" },
+      ...futureProjections,
+      ...customWarRosters,
+    ];
+    const match = candidates.find(r => classSeasonFromRosterLabel(r.label) === strategySeason);
+    if (!match) return null;
+    return mergeRosterEdit(match, rosterEdits[match.id]);
+  }, [futureProjections, customWarRosters, rosterEdits, strategySeason]);
+
+  const strategyGraduating = useMemo(
+    () => countGraduatingByPosition(strategySourceRoster),
+    [strategySourceRoster]
+  );
+
+  const strategyClassConfig = strategyClasses[strategySeason] || null;
+
+  const strategyTargets = useMemo(
+    () => prospectsWithStage.filter(p =>
+      p.target_class_season === strategySeason &&
+      (p.pinned_to_strategy || p._stage === "building" || p._stage === "offer" || p._stage === "committed")
+    ),
+    [prospectsWithStage, strategySeason]
+  );
+
+  const strategyTargetsByPos = useMemo(() => {
+    const out = { F: [], D: [], G: [] };
+    strategyTargets.forEach(p => out[getProspectPositionBucket(p.pos)].push(p));
+    return out;
+  }, [strategyTargets]);
+
+  const strategySlotsByPosition = useMemo(() => {
+    if (!strategyClassConfig) return { F: [], D: [], G: [] };
+    const buildSlots = (pos, count) => {
+      const pool = strategyTargetsByPos[pos] || [];
+      const committed = pool.filter(p => p._stage === "committed");
+      const pending = pool.filter(p => p._stage === "offer");
+      const targeted = pool.filter(p => p._stage === "building" || p.pinned_to_strategy);
+      const slots = [];
+      for (let i = 0; i < count; i++) {
+        const c = committed[i];
+        if (c) { slots.push({ state: c.conditional_commit ? "conditional" : "filled", prospect: c, targetPoolCount: targeted.length + pending.length + committed.length }); continue; }
+        const p = pending[i - committed.length];
+        if (p) { slots.push({ state: "pending", prospect: p, targetPoolCount: targeted.length + pending.length }); continue; }
+        const t = targeted[i - committed.length - pending.length];
+        if (t) { slots.push({ state: "targeted", prospect: t, targetPoolCount: targeted.length }); continue; }
+        slots.push({ state: "open", prospect: null, targetPoolCount: targeted.length });
+      }
+      return slots;
+    };
+    return {
+      F: buildSlots("F", strategyClassConfig.positional_targets.F),
+      D: buildSlots("D", strategyClassConfig.positional_targets.D),
+      G: buildSlots("G", strategyClassConfig.positional_targets.G),
+    };
+  }, [strategyClassConfig, strategyTargetsByPos]);
+
+  const strategySlotsSummary = useMemo(() => {
+    const allSlots = [...strategySlotsByPosition.F, ...strategySlotsByPosition.D, ...strategySlotsByPosition.G];
+    const countState = (s) => allSlots.filter(x => x.state === s).length;
+    const usedBands = { A: 0, B: 0, C: 0 };
+    allSlots.forEach(slot => {
+      const band = slot.prospect?.academic_band;
+      if (band && usedBands[band] != null) usedBands[band] += 1;
+    });
+    const limits = strategyClassConfig?.band_limits || { A: null, B: 0, C: 0 };
+    return {
+      filled: countState("filled") + countState("conditional"),
+      pending: countState("pending"),
+      open: countState("open"),
+      openByPos: {
+        F: strategySlotsByPosition.F.filter(x => x.state === "open").length,
+        D: strategySlotsByPosition.D.filter(x => x.state === "open").length,
+        G: strategySlotsByPosition.G.filter(x => x.state === "open").length,
+      },
+      bandRemaining: {
+        A: limits.A == null ? null : Math.max(0, limits.A - usedBands.A),
+        B: limits.B == null ? null : Math.max(0, limits.B - usedBands.B),
+        C: limits.C == null ? null : Math.max(0, limits.C - usedBands.C),
+      },
+    };
+  }, [strategySlotsByPosition, strategyClassConfig]);
+
   function notify(msg) { setNotification(msg); setTimeout(() => setNotification(null), 3000); }
 
   function updateProspect(id, updater) {
@@ -1384,14 +1717,35 @@ export default function IceBoard() {
     setSelected(prev => prev?.id===id ? updater(prev) : prev);
   }
 
+  function setProspectStrategyPin(id, season) {
+    updateProspect(id, p => {
+      const isPinned = Boolean(p.pinned_to_strategy && p.target_class_season === season);
+      if (isPinned) return { ...p, pinned_to_strategy: false };
+      return { ...p, pinned_to_strategy: true, target_class_season: season || p.target_class_season };
+    });
+  }
+
   function moveProspect(id, targetCol) {
     setProspects(prev => {
       const next = {};
       let moved = null;
       for (const [col, list] of Object.entries(prev)) {
-        next[col] = list.filter(p => { if(p.id===id){moved=p;return false;} return true; });
+        const idx = list.findIndex(p => p.id === id);
+        if (idx === -1) {
+          next[col] = list;
+        } else {
+          moved = list[idx];
+          next[col] = list.filter((_, i) => i !== idx);
+        }
       }
-      if (moved) next[targetCol] = [...next[targetCol], moved];
+      if (moved) {
+        const nextMoved = {
+          ...moved,
+          committed_at: targetCol === "committed" ? (moved.committed_at || new Date().toISOString()) : null,
+          target_class_season: targetCol === "committed" ? (moved.target_class_season || strategySeason) : moved.target_class_season,
+        };
+        next[targetCol] = [...next[targetCol], nextMoved];
+      }
       return next;
     });
     setSelected(null);
@@ -1651,6 +2005,12 @@ export default function IceBoard() {
     }
   }, [benchmarkLibrary, benchmarkTabId]);
 
+  useEffect(() => {
+    if (!strategySeasons.includes(strategySeason)) {
+      setStrategySeason(strategySeasons[0]);
+    }
+  }, [strategySeasons, strategySeason]);
+
   function handleAddProjectionYear() {
     const src = findLatestProjectionRoster(futureProjections);
     const suggested = nextYearLabelFromLabel(src.label);
@@ -1698,6 +2058,7 @@ export default function IceBoard() {
   }
 
   const NAV = [
+    {key:"strategy",label:"Strategy Board"},
     {key:"pipeline",label:"Pipeline Board"},
     {key:"trending",label:"Trending Players"},
     {key:"warroom",label:"War Room"},
@@ -1732,6 +2093,23 @@ export default function IceBoard() {
       <div style={{ background:C.surface, borderBottom:`1px solid ${C.border}`, padding:"0 16px", display:"flex", flexShrink:0 }}>
         {NAV.map(({key,label}) => <button key={key} onClick={() => setActiveTab(key)} style={{ background:"none", border:"none", cursor:"pointer", padding:"9px 14px", fontSize:12, fontWeight:600, color:activeTab===key?C.accent:C.muted, borderBottom:`2px solid ${activeTab===key?C.accent:"transparent"}` }}>{label}</button>)}
       </div>
+
+      {/* Strategy Board */}
+      {activeTab==="strategy" && (
+        <StrategyBoardTab
+          seasons={strategySeasons}
+          season={strategySeason}
+          onSeasonChange={setStrategySeason}
+          classConfig={strategyClassConfig}
+          onCreateClassConfig={(cfg) => setStrategyClasses(prev => ({ ...prev, [strategySeason]: cfg }))}
+          onUpdateClassConfig={(updater) => setStrategyClasses(prev => ({ ...prev, [strategySeason]: updater(prev[strategySeason]) }))}
+          graduating={strategyGraduating}
+          slotsSummary={strategySlotsSummary}
+          slotsByPosition={strategySlotsByPosition}
+          activeTargets={strategyTargets.filter(p => p._stage !== "committed")}
+          onSelectProspect={(p) => { setSelected(p); setActiveTab("pipeline"); }}
+        />
+      )}
 
       {/* Pipeline */}
       {activeTab==="pipeline" && (
@@ -1816,14 +2194,33 @@ export default function IceBoard() {
                     <span style={{ fontSize:9, color:C.muted, background:C.card, padding:"1px 5px", borderRadius:8, border:`1px solid ${C.border}` }}>{filteredProspects[col.key].length}</span>
                   </div>
                   <div style={{ padding:9, overflowY:"auto", flex:1 }}>
-                    {filteredProspects[col.key].map(p => <ProspectCard key={p.id} prospect={p} onClick={setSelected} selected={selected?.id===p.id} />)}
+                    {filteredProspects[col.key].map(p => (
+                      <ProspectCard
+                        key={p.id}
+                        prospect={p}
+                        onClick={setSelected}
+                        selected={selected?.id===p.id}
+                        currentStrategySeason={strategySeason}
+                        onPinToStrategy={setProspectStrategyPin}
+                      />
+                    ))}
                   </div>
                 </div>
               ))}
             </div>
             {liveSelected && (
               <div style={{ width:320, minWidth:320, display:"flex", flexDirection:"column", overflow:"hidden" }}>
-                <ProspectDetail prospect={liveSelected} onClose={() => setSelected(null)} onMove={moveProspect} onSend={sendMessage} onAddEval={addEval} onSetNudge={setNudge} onAddNote={addNote} />
+                <ProspectDetail
+                  prospect={liveSelected}
+                  onClose={() => setSelected(null)}
+                  onMove={moveProspect}
+                  onSend={sendMessage}
+                  onAddEval={addEval}
+                  onSetNudge={setNudge}
+                  onAddNote={addNote}
+                  onPinToStrategy={setProspectStrategyPin}
+                  currentStrategySeason={strategySeason}
+                />
               </div>
             )}
           </div>
