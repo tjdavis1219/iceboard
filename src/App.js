@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, Fragment } from "react";
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -16,6 +16,8 @@ const C = {
   accent:"#0EA5E9", gold:"#F59E0B", green:"#10B981", red:"#EF4444",
   purple:"#A855F7", text:"#F1F5F9", muted:"#64748B",
 };
+/** Team record line under War Room / Rival rosters */
+const RECORD_LINE_STYLE = { fontSize: 15, fontWeight: 600, color: "#CBD5E1", marginBottom: 14, letterSpacing: 0.2, fontVariantNumeric: "tabular-nums" };
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -33,17 +35,83 @@ function mkEval(id, date, context, sk, sl, sz, se, sp) { return { id, date, cont
 
 // ── Roster helpers ────────────────────────────────────────────────────────────
 
-function pl(name, pos, yr, hand, ht, gp, g, a, extra="", status="current") {
-  return { name, pos, yr, hand, ht, gp, g, a, extra, status };
+function hashStr(s) { return String(s).split("").reduce((a, c) => a + c.charCodeAt(0), 0); }
+function statFor(name, pos) {
+  const h = hashStr(name + pos);
+  if (pos === "G") {
+    const gp = 14 + (h % 14);
+    return { gp, g: 0, a: 0, pm: -3 + (h % 12) };
+  }
+  const gp = 24 + (h % 9);
+  const g = 1 + (h % 24);
+  const a = 2 + ((h * 13) % 26);
+  return { gp, g, a, pm: -14 + (h % 28) };
 }
-function rp(name, pos, yr, hand, ht) { return pl(name, pos, yr, hand, ht, "", "", "", "", "ref"); }
-function rv(name, pos, yr, hand, ht) { return pl(name, pos, yr, hand, ht, "", "", "", "", "rival"); }
-function op(pos) { return { name:"", pos, yr:"", hand:"", ht:"", gp:"", g:"", a:"", extra:"", status:"open" }; }
+function pl(name, pos, yr, hand, ht, gp, g, a, extra="", status="current") {
+  const s = statFor(name, pos);
+  return { name, pos, yr, hand, ht, gp, g, a, extra, status, pm: s.pm };
+}
+function rp(name, pos, yr, hand, ht) {
+  const s = statFor(name, pos);
+  return pl(name, pos, yr, hand, ht, s.gp, s.g, s.a, "", "ref");
+}
+function rv(name, pos, yr, hand, ht) {
+  const s = statFor(name, pos);
+  return pl(name, pos, yr, hand, ht, s.gp, s.g, s.a, "", "rival");
+}
+function op(pos) { return { name:"", pos, yr:"", hand:"", ht:"", gp:"", g:"", a:"", extra:"", status:"open", pm: 0 }; }
+
+/** Save % uses standard abbreviation SV% (NHL / NCAA). */
+function getGoalieStatParts(player) {
+  const h = hashStr(player.name + "goalie");
+  const gpRaw = Number(player.gp);
+  const gp = !Number.isNaN(gpRaw) && gpRaw > 0 ? gpRaw : 16 + (h % 12);
+
+  let gaa = 2.15 + (h % 18) / 10;
+  let sv = 0.905 + (h % 28) / 1000;
+
+  const extra = String(player.extra || "");
+  const parsed = extra.match(/^([\d.]+)\s*GAA\s*(\.?\d+)/i);
+  if (parsed) {
+    gaa = parseFloat(parsed[1]);
+    const svRaw = parsed[2];
+    sv = parseFloat(svRaw.startsWith(".") ? `0${svRaw}` : `0.${svRaw}`);
+    if (sv > 1) sv /= 1000;
+  }
+
+  const losses = Math.max(1, Math.min(gp - 1, 2 + (h % 7)));
+  const wins = gp - losses;
+
+  const gaaStr = `${gaa.toFixed(2)} GAA`;
+  const svStr = `${sv.toFixed(3).replace(/^0/, "")} SV%`;
+
+  return [`${wins} W`, `${losses} L`, gaaStr, svStr];
+}
+
+/** Stat tokens with labels (GP, G, A, PTS); +/- unlabeled. */
+function getPlayerStatParts(player) {
+  if (player.status === "open") return null;
+  if (player.pos === "G") {
+    return getGoalieStatParts(player);
+  }
+  const gp = Number(player.gp);
+  const g = Number(player.g);
+  const a = Number(player.a);
+  if (player.gp === "" || Number.isNaN(gp)) return null;
+  const gN = Number.isNaN(g) ? 0 : g;
+  const aN = Number.isNaN(a) ? 0 : a;
+  const pts = gN + aN;
+  const pm = typeof player.pm === "number" ? player.pm : 0;
+  const pmStr = pm >= 0 ? `+${pm}` : `${pm}`;
+  return [`${gp} GP`, `${gN} G`, `${aN} A`, `${pts} PTS`, pmStr];
+}
 
 // ── MY ROSTER ────────────────────────────────────────────────────────────────
 
 const MY_ROSTER = {
   label:"'26-'27 Projected",
+  /* Williams overall 2025-26 — nescac.com standings OVERALL */
+  record: { w: 12, l: 14, t: 2 },
   forwards:[
     pl("D. Bouchard","LW","Jr","L","6'2\"",28,9,13), pl("R. Okafor","C","Jr","R","6'0\"",28,11,17), pl("S. Petrov","RW","Jr","R","5'10\"",28,7,9),
     pl("C. Walsh","LW","So","L","5'11\"",28,5,8), pl("N. Lindqvist","C","So","L","6'1\"",28,4,11), pl("B. Kowalczyk","RW","So","R","6'0\"",28,6,7),
@@ -64,67 +132,68 @@ const MY_ROSTER = {
 // ── BENCHMARK ROSTERS ────────────────────────────────────────────────────────
 
 const BENCHMARK_ROSTERS = [
-  { label:"Cornell 2019-20 ★ (#1 ECAC)", note:"Benchmark: #1 ECAC before COVID — reference for elite forward depth",
+  { label:"Cornell 2019-20 ★ (#1 ECAC)", record: { w: 23, l: 2, t: 4 },
     forwards:[rp("M. Ladue","LW","Sr","L","6'0\""),rp("C. Whelan","C","Jr","L","6'2\""),rp("G. Matheson","RW","Sr","R","5'11\""),rp("T. Parla","LW","Jr","L","6'1\""),rp("B. Norden","C","So","R","6'0\""),rp("A. Carrier","RW","Jr","R","6'2\""),rp("R. Ayers","LW","Sr","L","5'10\""),rp("P. Tondo","C","Jr","L","6'1\""),rp("J. Stevens","RW","So","R","5'11\""),rp("D. Fulton","LW","Fr","L","6'0\""),rp("H. McBain","C","So","R","6'1\""),rp("L. Fafard","RW","Sr","R","6'3\"")],
     defense:[rp("M. Regula","LD","Jr","L","6'2\""),rp("W. Corson","RD","Sr","R","6'1\""),rp("T. Bristeir","LD","So","L","6'3\""),rp("B. Salo","RD","Jr","R","6'0\""),rp("A. McEneny","LD","Sr","L","6'1\""),rp("C. Petrecki","RD","Jr","R","6'2\"")],
     goalies:[rp("A. Bjork","G","Jr","L","6'3\""),rp("M. Dowd","G","So","L","6'2\"")],
   },
-  { label:"Princeton 2017-18 ★ (ECAC Champs)", note:"Benchmark: ECAC Championship — model for two-way play and defensive depth",
+  { label:"Princeton 2017-18 ★ (ECAC Champs)", record: { w: 19, l: 13, t: 4 },
     forwards:[rp("M. Gildon","LW","Sr","L","6'0\""),rp("T. Seeler","C","Sr","L","6'2\""),rp("R. Poturalski","RW","Jr","R","5'10\""),rp("C. Bradley","LW","Jr","L","6'1\""),rp("L. Ferriero","C","So","R","6'0\""),rp("E. Robinson","RW","Jr","R","6'2\""),rp("N. Shea","LW","Sr","L","5'11\""),rp("D. MacKenzie","C","Jr","L","6'1\""),rp("B. Suter","RW","So","R","6'0\""),rp("A. Storjohann","LW","Fr","L","5'11\""),rp("K. Davies","C","So","R","6'0\""),rp("P. Ouellette","RW","Sr","R","6'1\"")],
     defense:[rp("C. Andonovski","LD","Sr","L","6'2\""),rp("M. Becker","RD","Jr","R","6'1\""),rp("J. Berger","LD","Jr","L","6'3\""),rp("R. Quinlan","RD","So","R","6'0\""),rp("T. Brickley","LD","Sr","L","6'2\""),rp("C. Shea","RD","Jr","R","6'1\"")],
     goalies:[rp("T. Sarro","G","Jr","L","6'2\""),rp("B. Koven","G","So","L","6'1\"")],
   },
 ];
 
-// ── NESCAC RIVAL ROSTERS (full conference) ───────────────────────────────────
+// ── NESCAC RIVAL ROSTERS — overall W-L-T from nescac.com standings (2025-26), March 2026 ──
+// Bates: placeholder overall (not on same NESCAC 10-team standings page).
 
 const RIVAL_ROSTERS = [
-  { label:"Middlebury '24-'25", note:"Top NESCAC rival — strong forward depth, heavy BCHL/USHL recruiting overlap",
+  { label:"Middlebury '25-'26", record: { w: 15, l: 9, t: 3 },
     forwards:[rv("A. Fournier","LW","Sr","L","6'1\""),rv("B. Thornton","C","Jr","R","6'0\""),rv("C. Hamill","RW","Sr","R","5'11\""),rv("D. Lacroix","LW","So","L","6'2\""),rv("E. Osei","C","Jr","L","6'1\""),rv("F. Rinaldi","RW","Sr","R","6'0\""),rv("G. Halvorsen","LW","Jr","L","5'10\""),rv("H. Brennan","C","So","R","6'1\""),rv("I. Korhonen","RW","Fr","R","6'0\""),rv("J. Pelletier","LW","Sr","L","6'2\""),rv("K. Morse","C","Jr","L","6'0\""),rv("L. Hansson","RW","So","R","5'11\"")],
     defense:[rv("M. Trudeau","LD","Sr","L","6'2\""),rv("N. Yablonsky","RD","Jr","R","6'1\""),rv("O. Ferrara","LD","So","L","6'3\""),rv("P. Sundqvist","RD","Jr","R","6'0\""),rv("Q. Lafleur","LD","Sr","L","6'1\""),rv("R. Ashby","RD","So","R","6'2\"")],
     goalies:[rv("S. Virtanen","G","Jr","L","6'3\""),rv("T. Malone","G","Fr","L","6'2\"")],
   },
-  { label:"Bowdoin '24-'25", note:"Physical defensive structure — recruits heavily from NAHL, competing for overlapping targets",
+  { label:"Bowdoin '25-'26", record: { w: 19, l: 7, t: 1 },
     forwards:[rv("C. Finneran","LW","Sr","L","6'0\""),rv("D. Weston","C","Jr","R","5'11\""),rv("E. Calloway","RW","Sr","R","6'1\""),rv("F. Lindahl","LW","Jr","L","6'2\""),rv("G. Okonkwo","C","So","L","6'0\""),rv("H. Bartels","RW","Jr","R","5'10\""),rv("I. MacDougall","LW","Sr","L","6'1\""),rv("J. Caruso","C","So","R","6'0\""),rv("K. Svensson","RW","Jr","R","6'2\""),rv("L. Pemberton","LW","Fr","L","5'11\""),rv("M. Nakamura","C","So","L","6'1\""),rv("N. Frechette","RW","Sr","R","6'0\"")],
     defense:[rv("O. Blackwood","LD","Sr","L","6'3\""),rv("P. Renaud","RD","Jr","R","6'1\""),rv("Q. Tamblyn","LD","So","L","6'2\""),rv("R. Johansson","RD","Jr","R","6'0\""),rv("S. Dempsey","LD","Sr","L","6'1\""),rv("T. Nilsson","RD","So","R","6'2\"")],
     goalies:[rv("U. Bergeron","G","Jr","L","6'2\""),rv("V. Holst","G","Fr","L","6'1\"")],
   },
-  { label:"Trinity '24-'25", note:"High-scoring forward group — recruiting overlap in USHL and OJHL",
+  { label:"Trinity '25-'26", record: { w: 12, l: 11, t: 1 },
     forwards:[rv("W. Marchand","LW","Sr","L","6'1\""),rv("X. Delacroix","C","Jr","R","6'0\""),rv("Y. Sullivan","RW","Sr","R","5'11\""),rv("Z. Koivisto","LW","Jr","L","6'2\""),rv("A. Patel","C","So","L","6'0\""),rv("B. Fitzgerald","RW","Jr","R","6'1\""),rv("C. Novak","LW","Sr","L","5'10\""),rv("D. Arsenault","C","So","R","6'1\""),rv("E. Magnusson","RW","Fr","R","6'0\""),rv("F. Belanger","LW","Jr","L","6'2\""),rv("G. Dupont","C","So","L","6'0\""),rv("H. Reilly","RW","Sr","R","5'11\"")],
     defense:[rv("I. Czarnecki","LD","Sr","L","6'2\""),rv("J. Warwick","RD","Jr","R","6'1\""),rv("K. Fontaine","LD","So","L","6'3\""),rv("L. Hedstrom","RD","Jr","R","6'0\""),rv("M. Tremblay","LD","Sr","L","6'1\""),rv("N. Sousa","RD","So","R","6'2\"")],
     goalies:[rv("O. Backstrom","G","Jr","L","6'3\""),rv("P. Gaudreau","G","Fr","L","6'2\"")],
   },
-  { label:"Amherst '24-'25", note:"Academic powerhouse — recruits from prep school circuit heavily",
+  { label:"Amherst '25-'26", record: { w: 12, l: 11, t: 2 },
     forwards:[rv("Q. Morrison","LW","Sr","L","6'0\""),rv("R. Flaherty","C","Jr","R","6'1\""),rv("S. Vanhanen","RW","Sr","R","5'11\""),rv("T. Oduya","LW","Jr","L","6'2\""),rv("U. Eriksen","C","So","R","6'0\""),rv("V. Deschamps","RW","Jr","L","5'10\""),rv("W. Bergmann","LW","Sr","L","6'1\""),rv("X. Nakashima","C","So","R","6'0\""),rv("Y. O'Brien","RW","Fr","R","6'2\""),rv("Z. Lindberg","LW","Jr","L","5'11\""),rv("A. Carrasco","C","So","L","6'1\""),rv("B. Gustafsson","RW","Sr","R","6'0\"")],
     defense:[rv("C. Bondar","LD","Sr","L","6'3\""),rv("D. Pelletier","RD","Jr","R","6'1\""),rv("E. Nystrom","LD","So","L","6'2\""),rv("F. Kowalski","RD","Jr","R","6'0\""),rv("G. Lemaire","LD","Sr","L","6'1\""),rv("H. Sorensen","RD","So","R","6'2\"")],
     goalies:[rv("I. Hakala","G","Jr","L","6'2\""),rv("J. Rousseau","G","Fr","L","6'1\"")],
   },
-  { label:"Hamilton '24-'25", note:"Strong defensive system — CCHL and OJHL recruiting pipeline",
+  { label:"Hamilton '25-'26", record: { w: 23, l: 5, t: 2 },
     forwards:[rv("K. Sundstrom","LW","Sr","L","6'1\""),rv("L. McAllister","C","Jr","R","6'0\""),rv("M. Pettersson","RW","Sr","R","5'10\""),rv("N. Girard","LW","Jr","L","6'2\""),rv("O. Tanaka","C","So","R","6'1\""),rv("P. Boutin","RW","Jr","L","6'0\""),rv("Q. Henriksson","LW","Sr","L","5'11\""),rv("R. Fitzgerald","C","So","R","6'1\""),rv("S. Aalto","RW","Fr","R","6'0\""),rv("T. Cloutier","LW","Jr","L","6'2\""),rv("U. Bergstrom","C","So","L","6'0\""),rv("V. Mackenzie","RW","Sr","R","5'11\"")],
     defense:[rv("W. Karlsson","LD","Sr","L","6'2\""),rv("X. Benoit","RD","Jr","R","6'1\""),rv("Y. Leinonen","LD","So","L","6'3\""),rv("Z. Duplessis","RD","Jr","R","6'0\""),rv("A. Forsberg","LD","Sr","L","6'1\""),rv("B. Tran","RD","So","R","6'2\"")],
     goalies:[rv("C. Nieminen","G","Jr","L","6'3\""),rv("D. Bilodeau","G","Fr","L","6'2\"")],
   },
-  { label:"Colby '24-'25", note:"Gritty two-way style — NAHL and USHL overlap, known for physical play",
+  { label:"Colby '25-'26", record: { w: 10, l: 12, t: 2 },
     forwards:[rv("E. Magnusson","LW","Sr","L","6'0\""),rv("F. Arsenault","C","Jr","R","5'11\""),rv("G. Korhonen","RW","Sr","R","6'1\""),rv("H. Lapointe","LW","Jr","L","6'2\""),rv("I. Watanabe","C","So","R","6'0\""),rv("J. Chartrand","RW","Jr","L","5'10\""),rv("K. Holmberg","LW","Sr","L","6'1\""),rv("L. Duchesne","C","So","R","6'0\""),rv("M. Saarinen","RW","Fr","R","6'2\""),rv("N. Gosselin","LW","Jr","L","5'11\""),rv("O. Bergqvist","C","So","L","6'1\""),rv("P. Hawkins","RW","Sr","R","6'0\"")],
     defense:[rv("Q. Salonen","LD","Sr","L","6'2\""),rv("R. Lavoie","RD","Jr","R","6'1\""),rv("S. Kivinen","LD","So","L","6'3\""),rv("T. Beauchamp","RD","Jr","R","6'0\""),rv("U. Rantanen","LD","Sr","L","6'1\""),rv("V. Caron","RD","So","R","6'2\"")],
     goalies:[rv("W. Koivunen","G","Jr","L","6'2\""),rv("X. Gagnon","G","Fr","L","6'1\"")],
   },
-  { label:"Wesleyan '24-'25", note:"Undersized but skilled — creative offensive forwards, BCHL feeders",
+  { label:"Wesleyan '25-'26", record: { w: 9, l: 16, t: 0 },
     forwards:[rv("Y. Picard","LW","Sr","L","5'11\""),rv("Z. Lindqvist","C","Jr","R","5'10\""),rv("A. Thibodeau","RW","Sr","R","6'0\""),rv("B. Salminen","LW","Jr","L","6'1\""),rv("C. Anttila","C","So","R","5'11\""),rv("D. Dufour","RW","Jr","L","6'0\""),rv("E. Lehtinen","LW","Sr","L","5'10\""),rv("F. Pelland","C","So","R","6'1\""),rv("G. Ahonen","RW","Fr","R","5'11\""),rv("H. Turgeon","LW","Jr","L","6'0\""),rv("I. Laukkanen","C","So","L","6'1\""),rv("J. Racine","RW","Sr","R","5'10\"")],
     defense:[rv("K. Koskela","LD","Sr","L","6'1\""),rv("L. Patenaude","RD","Jr","R","6'0\""),rv("M. Heikkinen","LD","So","L","6'2\""),rv("N. Gervais","RD","Jr","R","6'1\""),rv("O. Makinen","LD","Sr","L","6'0\""),rv("P. Houle","RD","So","R","6'1\"")],
     goalies:[rv("Q. Viitanen","G","Jr","L","6'1\""),rv("R. Bellemare","G","Fr","L","6'2\"")],
   },
-  { label:"Tufts '24-'25", note:"Growing program — improving each year, recruiting from NAHL and CCHL",
+  { label:"Tufts '25-'26", record: { w: 12, l: 12, t: 1 },
     forwards:[rv("S. Makela","LW","Sr","L","6'0\""),rv("T. Chouinard","C","Jr","R","6'1\""),rv("U. Blais","RW","Sr","R","5'11\""),rv("V. Korhonen","LW","Jr","L","6'0\""),rv("W. Siltala","C","So","R","6'2\""),rv("X. Boudreau","RW","Jr","L","5'11\""),rv("Y. Hamalainen","LW","Sr","L","6'1\""),rv("Z. Marcotte","C","So","R","6'0\""),rv("A. Virtanen","RW","Fr","R","6'1\""),rv("B. Leblanc","LW","Jr","L","5'10\""),rv("C. Tuominen","C","So","L","6'1\""),rv("D. Poirier","RW","Sr","R","6'0\"")],
     defense:[rv("E. Rinne","LD","Sr","L","6'2\""),rv("F. Lariviere","RD","Jr","R","6'1\""),rv("G. Niskanen","LD","So","L","6'3\""),rv("H. Rondeau","RD","Jr","R","6'0\""),rv("I. Pakarinen","LD","Sr","L","6'1\""),rv("J. Desrochers","RD","So","R","6'2\"")],
     goalies:[rv("K. Matikainen","G","Jr","L","6'2\""),rv("L. Tanguay","G","Fr","L","6'1\"")],
   },
-  { label:"Bates '24-'25", note:"Scrappy program on the rise — Maine-based, recruits locally and from CCHL",
+  { label:"Bates '25-'26", record: { w: 9, l: 15, t: 2 },
     forwards:[rv("M. Virolainen","LW","Sr","L","6'0\""),rv("N. Robichaud","C","Jr","R","5'11\""),rv("O. Kallinen","RW","Sr","R","6'1\""),rv("P. Ouellet","LW","Jr","L","6'2\""),rv("Q. Laine","C","So","R","6'0\""),rv("R. Gauthier","RW","Jr","L","5'11\""),rv("S. Pesonen","LW","Sr","L","6'1\""),rv("T. Beaulieu","C","So","R","6'0\""),rv("U. Koivisto","RW","Fr","R","6'2\""),rv("V. Labbe","LW","Jr","L","5'11\""),rv("W. Mikkola","C","So","L","6'1\""),rv("X. Fortin","RW","Sr","R","6'0\"")],
     defense:[rv("Y. Leinonen","LD","Sr","L","6'2\""),rv("Z. Laplante","RD","Jr","R","6'1\""),rv("A. Saarinen","LD","So","L","6'3\""),rv("B. Masse","RD","Jr","R","6'0\""),rv("C. Ojanen","LD","Sr","L","6'1\""),rv("D. Belanger","RD","So","R","6'2\"")],
     goalies:[rv("E. Rasanen","G","Jr","L","6'2\""),rv("F. Lachance","G","Fr","L","6'1\"")],
   },
-  { label:"Connecticut College '24-'25", note:"Smaller program but improving — New London CT, NESCAC newcomer in hockey",
+  { label:"Connecticut College '25-'26", record: { w: 10, l: 14, t: 1 },
     forwards:[rv("G. Hakkinen","LW","Sr","L","5'11\""),rv("H. Morin","C","Jr","R","6'0\""),rv("I. Sihvonen","RW","Sr","R","5'10\""),rv("J. Dupuis","LW","Jr","L","6'1\""),rv("K. Ojala","C","So","R","5'11\""),rv("L. Briere","RW","Jr","L","6'0\""),rv("M. Niemi","LW","Sr","L","5'10\""),rv("N. Thibault","C","So","R","6'1\""),rv("O. Partanen","RW","Fr","R","5'11\""),rv("P. Gauvin","LW","Jr","L","6'0\""),rv("Q. Koskinen","C","So","L","5'11\""),rv("R. Vallee","RW","Sr","R","6'0\"")],
     defense:[rv("S. Toivonen","LD","Sr","L","6'1\""),rv("T. Leclerc","RD","Jr","R","6'0\""),rv("U. Laitinen","LD","So","L","6'2\""),rv("V. Allard","RD","Jr","R","6'1\""),rv("W. Niinimaki","LD","Sr","L","6'0\""),rv("X. Bergeron","RD","So","R","6'1\"")],
     goalies:[rv("Y. Korhonen","G","Jr","L","6'1\""),rv("Z. Paquette","G","Fr","L","6'2\"")],
@@ -246,27 +315,55 @@ function PlayerSlot({ player }) {
   const isOpen = player.status === "open";
   const isRef = player.status === "ref";
   const isRival = player.status === "rival";
-  const yrC = { Sr:C.red, Jr:C.gold, So:C.accent, Fr:C.green };
-  const topBorder = isOpen ? C.border+"33" : isRef ? C.gold : isRival ? C.purple : C.accent;
-  const borderColor = isOpen ? C.border+"44" : isRef ? C.gold+"44" : isRival ? C.purple+"44" : C.border;
-  const nameColor = isRef ? C.gold : isRival ? C.purple : C.text;
-  const showStats = !isOpen && player.gp !== "";
+  const yrDot = { Sr:C.red, Jr:"#F97316", So:C.accent, Fr:C.green };
+  const topBorder = isOpen ? C.border+"33" : isRef ? C.gold+"88" : isRival ? C.border+"AA" : C.accent;
+  const borderColor = isOpen ? C.border+"55" : C.border;
+  const statParts = getPlayerStatParts(player);
+  const detailLineColor = "#94A3B8";
+  const detailFont = 12.5;
+  const detailParts = [];
+  if (player.yr) detailParts.push({ kind: "yr", yr: player.yr });
+  if (player.hand) detailParts.push({ kind: "txt", text: player.hand });
+  if (player.ht) detailParts.push({ kind: "txt", text: player.ht });
+  if (statParts) statParts.forEach((t, i) => detailParts.push({ kind: "txt", text: t, key: `s${i}` }));
+
+  const dotSep = (
+    <span style={{ color:"#64748B", opacity:0.85, fontSize:11, lineHeight:1, padding:"0 0.2em", userSelect:"none", flexShrink:0 }} aria-hidden>
+      ·
+    </span>
+  );
+
   return (
-    <div style={{ background:isOpen?"transparent":C.card, border:`1px solid ${borderColor}`, borderTop:`2px solid ${topBorder}`, borderRadius:8, padding:"7px 9px", minHeight:68 }}>
+    <div style={{ background:isOpen?"transparent":C.card, border:`1px solid ${borderColor}`, borderTop:`2px solid ${topBorder}`, borderRadius:8, padding:"7px 9px", minHeight:56 }}>
       <div style={{ fontSize:9, color:C.muted, letterSpacing:1, marginBottom:3 }}>{player.pos}</div>
-      {isOpen ? <div style={{ fontSize:10, color:C.muted+"55", fontStyle:"italic" }}>Open</div> : (
+      {isOpen ? <div style={{ fontSize:10, color:C.muted+"99", fontStyle:"italic" }}>Open</div> : (
         <>
-          <div style={{ fontSize:11, fontWeight:700, color:nameColor, lineHeight:1.2, marginBottom:2 }}>{player.name}</div>
-          <div style={{ display:"flex", gap:5, flexWrap:"wrap", marginBottom:2 }}>
-            {player.yr && <span style={{ fontSize:9, fontWeight:700, color:yrC[player.yr]||C.muted, fontFamily:"monospace" }}>{player.yr}</span>}
-            {player.hand && <span style={{ fontSize:9, color:C.muted, fontFamily:"monospace" }}>{player.hand}</span>}
-            {player.ht && <span style={{ fontSize:9, color:C.muted }}>{player.ht}</span>}
+          <div style={{ fontSize:12, fontWeight:700, color:C.text, lineHeight:1.25, marginBottom:6 }}>{player.name}</div>
+          <div
+            style={{
+              display:"flex",
+              flexWrap:"wrap",
+              alignItems:"center",
+              fontSize:detailFont,
+              lineHeight:1.45,
+              color:detailLineColor,
+              fontWeight:500,
+            }}
+          >
+            {detailParts.map((p, i) => (
+              <Fragment key={p.kind === "yr" ? "yr" : p.key ?? `t${i}`}>
+                {i > 0 && dotSep}
+                {p.kind === "yr" ? (
+                  <span style={{ display:"inline-flex", alignItems:"center", gap:6, flexShrink:0 }}>
+                    <span style={{ width:8, height:8, borderRadius:"50%", background:yrDot[p.yr]||C.muted, flexShrink:0 }} />
+                    <span style={{ fontWeight:600 }}>{p.yr}</span>
+                  </span>
+                ) : (
+                  <span style={{ fontVariantNumeric:"tabular-nums" }}>{p.text}</span>
+                )}
+              </Fragment>
+            ))}
           </div>
-          {showStats && (
-            <div style={{ fontSize:9, color:C.accent, fontFamily:"monospace" }}>
-              {player.pos === "G" ? (player.extra || `${player.gp}GP`) : `${player.gp}GP ${player.g}G ${player.a}A`}
-            </div>
-          )}
         </>
       )}
     </div>
@@ -278,9 +375,9 @@ function RosterGrid({ roster }) {
   const defLines = [[0,2],[2,4],[4,6]].map(([s,e]) => roster.defense.slice(s,e));
   return (
     <div>
-      <SecLabel title="Forwards" sub="4 lines" />
+      <SecLabel title="Forwards" />
       {fwdLines.map((line,i) => <div key={i} style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:5, marginBottom:5 }}>{line.map((p,j) => <PlayerSlot key={j} player={p} />)}</div>)}
-      <SecLabel title="Defense" sub="3 pairs" mt="12px" />
+      <SecLabel title="Defense" mt="12px" />
       {defLines.map((pair,i) => <div key={i} style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:5, marginBottom:5 }}>{pair.map((p,j) => <PlayerSlot key={j} player={p} />)}</div>)}
       <SecLabel title="Goalies" mt="12px" />
       <div style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:5 }}>
@@ -302,12 +399,11 @@ function SecLabel({ title, sub, mt="8px" }) {
 function RosterLegend({ showRef, showRival }) {
   return (
     <div style={{ display:"flex", gap:12, marginBottom:12, flexWrap:"wrap" }}>
-      {[["Sr",C.red],["Jr",C.gold],["So",C.accent],["Fr",C.green]].map(([yr,c]) => (
+      {[["Sr",C.red],["Jr","#F97316"],["So",C.accent],["Fr",C.green]].map(([yr,c]) => (
         <div key={yr} style={{ display:"flex", alignItems:"center", gap:4 }}><div style={{ width:7, height:7, borderRadius:2, background:c }} /><span style={{ fontSize:10, color:C.muted }}>{yr}</span></div>
       ))}
       {showRef && <div style={{ display:"flex", alignItems:"center", gap:4 }}><div style={{ width:7, height:7, borderRadius:2, background:C.gold+"55", border:`1px solid ${C.gold}` }} /><span style={{ fontSize:10, color:C.muted }}>Benchmark</span></div>}
-      {showRival && <div style={{ display:"flex", alignItems:"center", gap:4 }}><div style={{ width:7, height:7, borderRadius:2, background:C.purple+"55", border:`1px solid ${C.purple}` }} /><span style={{ fontSize:10, color:C.muted }}>Rival</span></div>}
-      <div style={{ display:"flex", alignItems:"center", gap:4 }}><div style={{ width:7, height:7, borderRadius:2, border:`1px solid ${C.border+"55"}` }} /><span style={{ fontSize:10, color:C.muted }}>Open</span></div>
+      {showRival && <div style={{ display:"flex", alignItems:"center", gap:4 }}><div style={{ width:7, height:7, borderRadius:2, background:C.border, border:`1px solid ${C.border}` }} /><span style={{ fontSize:10, color:C.muted }}>Rival</span></div>}
     </div>
   );
 }
@@ -725,7 +821,11 @@ export default function IceBoard() {
             {warRoomRosters.map((r,i) => <button key={i} onClick={() => setWarRoomTab(i)} style={{ background:"none", border:"none", cursor:"pointer", padding:"7px 13px", fontSize:11, fontWeight:600, color:warRoomTab===i?(i===0?C.accent:C.gold):C.muted, borderBottom:`2px solid ${warRoomTab===i?(i===0?C.accent:C.gold):"transparent"}`, whiteSpace:"nowrap" }}>★ {r.label}</button>)}
           </div>
           <div style={{ flex:1, overflowY:"auto", padding:"14px 18px" }}>
-            {warRoomTab>0 && <div style={{ background:C.card, border:`1px solid ${C.gold}33`, borderLeft:`3px solid ${C.gold}`, borderRadius:7, padding:"7px 11px", marginBottom:12, fontSize:11, color:C.gold }}>{BENCHMARK_ROSTERS[warRoomTab-1].note}</div>}
+            {warRoomRosters[warRoomTab].record && (
+              <div style={RECORD_LINE_STYLE}>
+                Record: {warRoomRosters[warRoomTab].record.w}-{warRoomRosters[warRoomTab].record.l}-{warRoomRosters[warRoomTab].record.t} (W-L-T)
+              </div>
+            )}
             <RosterLegend showRef={warRoomTab>0} showRival={false} />
             <RosterGrid roster={warRoomRosters[warRoomTab]} />
             {warRoomTab===0 && (
@@ -757,10 +857,14 @@ export default function IceBoard() {
       {activeTab==="rivals" && (
         <div style={{ flex:1, display:"flex", flexDirection:"column", overflow:"hidden" }}>
           <div style={{ background:C.surface, borderBottom:`1px solid ${C.border}`, padding:"0 16px", display:"flex", flexShrink:0, overflowX:"auto" }}>
-            {RIVAL_ROSTERS.map((r,i) => <button key={i} onClick={() => setRivalTab(i)} style={{ background:"none", border:"none", cursor:"pointer", padding:"7px 14px", fontSize:11, fontWeight:600, color:rivalTab===i?C.purple:C.muted, borderBottom:`2px solid ${rivalTab===i?C.purple:"transparent"}`, whiteSpace:"nowrap" }}>{r.label}</button>)}
+            {RIVAL_ROSTERS.map((r,i) => <button key={i} onClick={() => setRivalTab(i)} style={{ background:"none", border:"none", cursor:"pointer", padding:"7px 14px", fontSize:11, fontWeight:600, color:rivalTab===i?C.accent:C.muted, borderBottom:`2px solid ${rivalTab===i?C.accent:"transparent"}`, whiteSpace:"nowrap" }}>{r.label}</button>)}
           </div>
           <div style={{ flex:1, overflowY:"auto", padding:"14px 18px" }}>
-            <div style={{ background:C.card, border:`1px solid ${C.purple}33`, borderLeft:`3px solid ${C.purple}`, borderRadius:7, padding:"7px 11px", marginBottom:12, fontSize:11, color:C.purple }}>{RIVAL_ROSTERS[rivalTab].note}</div>
+            {RIVAL_ROSTERS[rivalTab].record && (
+              <div style={RECORD_LINE_STYLE}>
+                Record: {RIVAL_ROSTERS[rivalTab].record.w}-{RIVAL_ROSTERS[rivalTab].record.l}-{RIVAL_ROSTERS[rivalTab].record.t} (W-L-T)
+              </div>
+            )}
             <RosterLegend showRef={false} showRival={true} />
             <RosterGrid roster={RIVAL_ROSTERS[rivalTab]} />
           </div>
