@@ -1,4 +1,4 @@
-import { useState, Fragment } from "react";
+import { useState, Fragment, useMemo, useEffect } from "react";
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -129,6 +129,29 @@ const MY_ROSTER = {
   ],
 };
 
+/** Williams current season (2025-26) — distinct from '26-'27 projection */
+const WILLIAMS_CURRENT_SEASON = {
+  id: "williams-2526",
+  warRoomKind: "current",
+  label: "Williams '25-'26",
+  record: { w: 12, l: 14, t: 2 },
+  forwards:[
+    pl("J. Caldwell","LW","Sr","L","6'1\"",28,12,14), pl("M. Irving","C","Sr","R","6'0\"",28,15,20), pl("T. Okonkwo","RW","Sr","R","5'11\"",28,9,11),
+    pl("D. Mercer","LW","Jr","L","6'2\"",28,8,12), pl("S. Lindberg","C","Jr","L","6'1\"",28,7,16), pl("R. Vatanen","RW","Jr","R","6'0\"",28,6,9),
+    pl("A. St. Louis","LW","So","L","5'11\"",28,5,7), pl("P. Okada","C","So","R","6'0\"",28,4,10), pl("C. Nyberg","RW","So","R","5'10\"",28,5,6),
+    pl("E. Forslund","LW","Fr","L","6'0\"",28,3,4), pl("L. Moreau","C","Fr","R","5'11\"",28,2,5), pl("H. Kitajima","RW","Fr","R","6'1\"",28,2,3),
+  ],
+  defense:[
+    pl("N. Harcourt","LD","Sr","L","6'2\"",28,5,11), pl("V. Strand","RD","Sr","R","6'1\"",28,3,9),
+    pl("W. Poulin","LD","Jr","L","6'3\"",28,2,8), pl("Y. Soderberg","RD","So","R","6'0\"",28,1,6),
+    pl("Z. Abboud","LD","Fr","L","6'2\"",28,0,4), pl("B. Chara","RD","Fr","R","6'1\"",28,1,3),
+  ],
+  goalies:[
+    pl("G. Whitmore","G","Sr","L","6'2\"",26,"","","2.22 GAA .926"),
+    pl("A. Reeves","G","Jr","L","6'1\"",12,"","","2.88 GAA .905"),
+  ],
+};
+
 // ── BENCHMARK ROSTERS ────────────────────────────────────────────────────────
 
 const BENCHMARK_ROSTERS = [
@@ -199,6 +222,94 @@ const RIVAL_ROSTERS = [
     goalies:[rv("Y. Korhonen","G","Jr","L","6'1\""),rv("Z. Paquette","G","Fr","L","6'2\"")],
   },
 ];
+
+// ── War Room: multi-year projections & custom rosters ────────────────────────
+
+function parseProjectionEndYear(label) {
+  const m = String(label).match(/'(\d{2})-'(\d{2})/);
+  if (!m) return null;
+  return parseInt(m[2], 10);
+}
+
+function nextYearLabelFromLabel(label) {
+  const m = String(label).match(/'(\d{2})-'(\d{2})/);
+  if (!m) return "'27-'28";
+  const end = parseInt(m[2], 10);
+  const ns = String(end).padStart(2, "0");
+  const ne = String((end + 1) % 100).padStart(2, "0");
+  return `'${ns}-'${ne}`;
+}
+
+function normalizeYearInput(s) {
+  if (!s || !String(s).trim()) return null;
+  const m = String(s).trim().match(/(\d{2})\s*[-'']\s*(\d{2})/);
+  if (!m) return null;
+  return `'${m[1]}-'${m[2]}`;
+}
+
+function advancePlayerYear(p) {
+  if (p.status === "open") return op(p.pos);
+  if (p.yr === "Sr") return op(p.pos);
+  const nextYr = { Jr: "Sr", So: "Jr", Fr: "So" }[p.yr];
+  if (!nextYr) return op(p.pos);
+  const s = statFor(p.name, p.pos);
+  return { ...p, yr: nextYr, pm: s.pm };
+}
+
+function advanceRosterFromSource(source) {
+  return {
+    forwards: source.forwards.map(advancePlayerYear),
+    defense: source.defense.map(advancePlayerYear),
+    goalies: source.goalies.map(advancePlayerYear),
+  };
+}
+
+function findLatestProjectionRoster(futureProjections) {
+  const candidates = [
+    { roster: MY_ROSTER, label: MY_ROSTER.label },
+    ...futureProjections.map(r => ({ roster: r, label: r.label })),
+  ];
+  let best = candidates[0];
+  let bestEnd = parseProjectionEndYear(best.label) ?? -1;
+  for (let i = 1; i < candidates.length; i++) {
+    const e = parseProjectionEndYear(candidates[i].label);
+    if (e != null && e > bestEnd) {
+      bestEnd = e;
+      best = candidates[i];
+    }
+  }
+  return best.roster;
+}
+
+function blankWilliamsRoster(id, label) {
+  return {
+    id,
+    warRoomKind: "custom",
+    label,
+    record: { w: 0, l: 0, t: 0 },
+    forwards: [
+      op("LW"), op("C"), op("RW"),
+      op("LW"), op("C"), op("RW"),
+      op("LW"), op("C"), op("RW"),
+      op("LW"), op("C"), op("RW"),
+    ],
+    defense: [op("LD"), op("RD"), op("LD"), op("RD"), op("LD"), op("RD")],
+    goalies: [op("G"), op("G")],
+  };
+}
+
+function cloneBenchmarkTemplate(id, label) {
+  const src = BENCHMARK_ROSTERS[0];
+  return {
+    id,
+    warRoomKind: "custom",
+    label,
+    record: { ...src.record },
+    forwards: src.forwards.map(p => ({ ...p })),
+    defense: src.defense.map(p => ({ ...p })),
+    goalies: src.goalies.map(p => ({ ...p })),
+  };
+}
 
 // ── Trending feed data ────────────────────────────────────────────────────────
 
@@ -681,7 +792,13 @@ export default function IceBoard() {
   const [prospects, setProspects] = useState(INITIAL_PROSPECTS);
   const [selected, setSelected] = useState(null);
   const [activeTab, setActiveTab] = useState("pipeline");
-  const [warRoomTab, setWarRoomTab] = useState(0);
+  const [warRoomTabId, setWarRoomTabId] = useState("williams-2526");
+  const [futureProjections, setFutureProjections] = useState([]);
+  const [customWarRosters, setCustomWarRosters] = useState([]);
+  const [customBenchmarkRosters, setCustomBenchmarkRosters] = useState([]);
+  const [compareBenchmarkId, setCompareBenchmarkId] = useState(null);
+  const [benchmarkTabId, setBenchmarkTabId] = useState("bench-cornell");
+  const [warRoomModal, setWarRoomModal] = useState(null);
   const [rivalTab, setRivalTab] = useState(0);
   const [notification, setNotification] = useState(null);
 
@@ -750,13 +867,94 @@ export default function IceBoard() {
   }
 
   const liveSelected = selected ? allProspects.find(p => p.id===selected.id)||selected : null;
-  const warRoomRosters = [MY_ROSTER, ...BENCHMARK_ROSTERS];
+
+  const warRoomRosters = useMemo(() => [
+    WILLIAMS_CURRENT_SEASON,
+    { ...MY_ROSTER, id: "williams-2627", warRoomKind: "projection" },
+    ...futureProjections,
+    ...customWarRosters,
+  ], [futureProjections, customWarRosters]);
+
+  const benchmarkLibrary = useMemo(() => [
+    { ...BENCHMARK_ROSTERS[0], id: "bench-cornell", warRoomKind: "benchmark" },
+    { ...BENCHMARK_ROSTERS[1], id: "bench-princeton", warRoomKind: "benchmark" },
+    ...customBenchmarkRosters,
+  ], [customBenchmarkRosters]);
+
+  const currentWarRoster = warRoomRosters.find(r => r.id === warRoomTabId) || warRoomRosters[0];
+  const compareBenchmarkRoster = compareBenchmarkId ? benchmarkLibrary.find(r => r.id === compareBenchmarkId) : null;
+  const activeBenchmarkRoster = benchmarkLibrary.find(x => x.id === benchmarkTabId) || benchmarkLibrary[0];
+
+  useEffect(() => {
+    if (warRoomRosters.length && !warRoomRosters.some(r => r.id === warRoomTabId)) {
+      setWarRoomTabId(warRoomRosters[0].id);
+    }
+  }, [warRoomRosters, warRoomTabId]);
+
+  useEffect(() => {
+    if (compareBenchmarkId && !benchmarkLibrary.some(r => r.id === compareBenchmarkId)) {
+      setCompareBenchmarkId(null);
+    }
+  }, [benchmarkLibrary, compareBenchmarkId]);
+
+  useEffect(() => {
+    if (benchmarkLibrary.length && !benchmarkLibrary.some(r => r.id === benchmarkTabId)) {
+      setBenchmarkTabId(benchmarkLibrary[0].id);
+    }
+  }, [benchmarkLibrary, benchmarkTabId]);
+
+  function handleAddProjectionYear() {
+    const src = findLatestProjectionRoster(futureProjections);
+    const suggested = nextYearLabelFromLabel(src.label);
+    const raw = window.prompt(`Add a future Williams projection year (e.g. 27-28 for '27-'28)`, suggested.replace(/'/g, ""));
+    if (raw == null) return;
+    const yy = normalizeYearInput(raw) || normalizeYearInput(suggested.replace(/'/g, "")) || null;
+    if (!yy) {
+      notify("Use a year like 27-28 or '27-'28");
+      return;
+    }
+    const adv = advanceRosterFromSource(src);
+    const id = `proj-${Date.now()}`;
+    const newRoster = {
+      id,
+      warRoomKind: "future",
+      label: `Williams ${yy} Projected`,
+      record: { w: 0, l: 0, t: 0 },
+      ...adv,
+    };
+    setFutureProjections(prev => [...prev, newRoster]);
+    setWarRoomTabId(id);
+    notify(`Added ${newRoster.label}`);
+  }
+
+  function handleCustomBenchmark() {
+    const name = window.prompt("Name this benchmark (e.g. Cornell 2020-21)", "Custom benchmark");
+    if (name == null) return;
+    const id = `bench-custom-${Date.now()}`;
+    const roster = cloneBenchmarkTemplate(id, name.trim() || "Custom benchmark");
+    setCustomBenchmarkRosters(prev => [...prev, roster]);
+    setBenchmarkTabId(id);
+    setActiveTab("benchmarks");
+    setWarRoomModal(null);
+    notify("Benchmark added — open War Room and pick a roster to compare side by side");
+  }
+
+  function handleCustomBlank() {
+    const name = window.prompt("Name this lineup", "Custom Williams depth chart");
+    if (name == null) return;
+    const id = `custom-${Date.now()}`;
+    setCustomWarRosters(prev => [...prev, blankWilliamsRoster(id, name.trim() || "Custom lineup")]);
+    setWarRoomTabId(id);
+    setWarRoomModal(null);
+    notify("Blank depth chart added");
+  }
 
   const NAV = [
     {key:"pipeline",label:"Pipeline Board"},
     {key:"trending",label:"Trending Players"},
     {key:"warroom",label:"War Room"},
     {key:"rivals",label:"Rival Rosters"},
+    {key:"benchmarks",label:"Benchmarks"},
   ];
 
   return (
@@ -817,39 +1015,97 @@ export default function IceBoard() {
       {/* War Room */}
       {activeTab==="warroom" && (
         <div style={{ flex:1, display:"flex", flexDirection:"column", overflow:"hidden" }}>
-          <div style={{ background:C.surface, borderBottom:`1px solid ${C.border}`, padding:"0 16px", display:"flex", flexShrink:0, overflowX:"auto" }}>
-            {warRoomRosters.map((r,i) => <button key={i} onClick={() => setWarRoomTab(i)} style={{ background:"none", border:"none", cursor:"pointer", padding:"7px 13px", fontSize:11, fontWeight:600, color:warRoomTab===i?(i===0?C.accent:C.gold):C.muted, borderBottom:`2px solid ${warRoomTab===i?(i===0?C.accent:C.gold):"transparent"}`, whiteSpace:"nowrap" }}>★ {r.label}</button>)}
+          <div style={{ background:C.surface, borderBottom:`1px solid ${C.border}`, padding:"0 16px", display:"flex", flexShrink:0, overflowX:"auto", alignItems:"stretch", flexWrap:"nowrap" }}>
+            {warRoomRosters.map((r) => {
+              const active = warRoomTabId === r.id;
+              return (
+                <button key={r.id} type="button" onClick={() => setWarRoomTabId(r.id)} style={{ background:"none", border:"none", cursor:"pointer", padding:"7px 13px", fontSize:11, fontWeight:600, color:active?C.accent:C.muted, borderBottom:`2px solid ${active?C.accent:"transparent"}`, whiteSpace:"nowrap" }}>
+                  ★ {r.label}
+                </button>
+              );
+            })}
+            <button type="button" onClick={handleAddProjectionYear} style={{ background:"none", border:"none", cursor:"pointer", padding:"7px 13px", fontSize:11, fontWeight:600, color:C.muted, borderBottom:"2px solid transparent", whiteSpace:"nowrap", borderLeft:`1px solid ${C.border}`, marginLeft:4 }}>
+              + Add Year
+            </button>
+            <button type="button" onClick={() => setWarRoomModal("custom")} style={{ background:"none", border:"none", cursor:"pointer", padding:"7px 13px", fontSize:11, fontWeight:600, color:C.muted, borderBottom:"2px solid transparent", whiteSpace:"nowrap" }}>
+              + Custom
+            </button>
           </div>
-          <div style={{ flex:1, overflowY:"auto", padding:"14px 18px" }}>
-            {warRoomRosters[warRoomTab].record && (
-              <div style={RECORD_LINE_STYLE}>
-                Record: {warRoomRosters[warRoomTab].record.w}-{warRoomRosters[warRoomTab].record.l}-{warRoomRosters[warRoomTab].record.t} (W-L-T)
+          <div style={{ padding:"8px 18px 10px", borderBottom:`1px solid ${C.border}`, background:C.surface, display:"flex", flexWrap:"wrap", alignItems:"center", gap:10 }}>
+            <span style={{ fontSize:11, color:C.muted }}>Compare to benchmark</span>
+            <select
+              value={compareBenchmarkId ?? ""}
+              onChange={e => setCompareBenchmarkId(e.target.value || null)}
+              style={{ background:C.card, border:`1px solid ${C.border}`, color:C.text, borderRadius:6, padding:"5px 10px", fontSize:11, minWidth:200, cursor:"pointer" }}
+            >
+              <option value="">None</option>
+              {benchmarkLibrary.map(r => (
+                <option key={r.id} value={r.id}>{r.label}</option>
+              ))}
+            </select>
+            {compareBenchmarkId && (
+              <button type="button" onClick={() => setCompareBenchmarkId(null)} style={{ fontSize:11, padding:"4px 10px", borderRadius:6, cursor:"pointer", background:"transparent", border:`1px solid ${C.border}`, color:C.muted }}>
+                Clear
+              </button>
+            )}
+          </div>
+          <div style={{ flex:1, display:"flex", minHeight:0, overflow:"hidden" }}>
+            <div style={{ flex:1, minWidth:0, overflowY:"auto", padding:"14px 18px" }}>
+              <div style={{ fontSize:10, fontWeight:700, color:C.muted, letterSpacing:0.4, marginBottom:10 }}>YOUR ROSTER</div>
+              {currentWarRoster.record && (
+                <div style={RECORD_LINE_STYLE}>
+                  Record: {currentWarRoster.record.w}-{currentWarRoster.record.l}-{currentWarRoster.record.t} (W-L-T)
+                </div>
+              )}
+              <RosterLegend showRef={false} showRival={false} />
+              <RosterGrid roster={currentWarRoster} />
+              {warRoomTabId === "williams-2627" && (
+                <div style={{ marginTop:18 }}>
+                  <div style={{ fontSize:10, fontWeight:700, color:C.text, letterSpacing:0.5, marginBottom:8 }}>A LIST RECRUITS — PIPELINE OVERLAY</div>
+                  {allProspects.filter(p=>p.tier==="A").map(p => {
+                    const avg = compositeAvg(avgScores(p.evals));
+                    return (
+                      <div key={p.id} style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"7px 10px", background:C.card, borderRadius:7, border:`1px solid ${C.border}`, marginBottom:5 }}>
+                        <div style={{ display:"flex", gap:9, alignItems:"center" }}>
+                          <TierBadge tier={p.tier} />
+                          <div><div style={{ fontSize:12, fontWeight:600, color:C.text }}>{p.name}</div><div style={{ fontSize:10, color:C.muted }}>{p.pos} · {p.league} · {p.evals?.length||0} viewings</div></div>
+                        </div>
+                        <div style={{ display:"flex", gap:9, alignItems:"center" }}>
+                          {(p.messages?.length||0)>0 && <span style={{ fontSize:10, color:C.accent }}>💬 {p.messages.length}</span>}
+                          <span style={{ fontSize:11, color:C.accent, fontFamily:"monospace" }}>{p.g}G {p.a}A</span>
+                          <ScoreRing value={avg} />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+            {compareBenchmarkRoster && (
+              <div style={{ flex:1, minWidth:0, overflowY:"auto", padding:"14px 18px", borderLeft:`1px solid ${C.border}`, background:"#0B0F18" }}>
+                <div style={{ fontSize:10, fontWeight:700, color:C.gold, letterSpacing:0.4, marginBottom:10 }}>BENCHMARK</div>
+                <div style={{ fontSize:12, fontWeight:600, color:C.text, marginBottom:8 }}>{compareBenchmarkRoster.label}</div>
+                {compareBenchmarkRoster.record && (
+                  <div style={{ ...RECORD_LINE_STYLE, fontSize:13 }}>
+                    Record: {compareBenchmarkRoster.record.w}-{compareBenchmarkRoster.record.l}-{compareBenchmarkRoster.record.t} (W-L-T)
+                  </div>
+                )}
+                <RosterLegend showRef={true} showRival={false} />
+                <RosterGrid roster={compareBenchmarkRoster} />
               </div>
             )}
-            <RosterLegend showRef={warRoomTab>0} showRival={false} />
-            <RosterGrid roster={warRoomRosters[warRoomTab]} />
-            {warRoomTab===0 && (
-              <div style={{ marginTop:18 }}>
-                <div style={{ fontSize:10, fontWeight:700, color:C.text, letterSpacing:0.5, marginBottom:8 }}>A LIST RECRUITS — PIPELINE OVERLAY</div>
-                {allProspects.filter(p=>p.tier==="A").map(p => {
-                  const avg = compositeAvg(avgScores(p.evals));
-                  return (
-                    <div key={p.id} style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"7px 10px", background:C.card, borderRadius:7, border:`1px solid ${C.border}`, marginBottom:5 }}>
-                      <div style={{ display:"flex", gap:9, alignItems:"center" }}>
-                        <TierBadge tier={p.tier} />
-                        <div><div style={{ fontSize:12, fontWeight:600, color:C.text }}>{p.name}</div><div style={{ fontSize:10, color:C.muted }}>{p.pos} · {p.league} · {p.evals?.length||0} viewings</div></div>
-                      </div>
-                      <div style={{ display:"flex", gap:9, alignItems:"center" }}>
-                        {(p.messages?.length||0)>0 && <span style={{ fontSize:10, color:C.accent }}>💬 {p.messages.length}</span>}
-                        <span style={{ fontSize:11, color:C.accent, fontFamily:"monospace" }}>{p.g}G {p.a}A</span>
-                        <ScoreRing value={avg} />
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
           </div>
+          {warRoomModal === "custom" && (
+            <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.55)", zIndex:1000, display:"flex", alignItems:"center", justifyContent:"center", padding:16 }} onClick={() => setWarRoomModal(null)} role="presentation">
+              <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:9, padding:18, maxWidth:360, width:"100%" }} onClick={e => e.stopPropagation()} role="dialog" aria-labelledby="custom-roster-title">
+                <div id="custom-roster-title" style={{ fontSize:14, fontWeight:700, color:C.text, marginBottom:10 }}>Custom roster</div>
+                <p style={{ fontSize:12, color:C.muted, lineHeight:1.5, marginBottom:14 }}>Benchmark templates are saved under Benchmarks. Blank depth charts stay in War Room for planning.</p>
+                <button type="button" onClick={handleCustomBenchmark} style={{ display:"block", width:"100%", padding:"8px 12px", marginBottom:8, borderRadius:6, cursor:"pointer", background:C.gold, border:"none", color:"#fff", fontSize:12, fontWeight:600 }}>Benchmark comparison</button>
+                <button type="button" onClick={handleCustomBlank} style={{ display:"block", width:"100%", padding:"8px 12px", marginBottom:8, borderRadius:6, cursor:"pointer", background:C.accent, border:"none", color:"#fff", fontSize:12, fontWeight:600 }}>Blank Williams depth chart</button>
+                <button type="button" onClick={() => setWarRoomModal(null)} style={{ display:"block", width:"100%", padding:"8px", borderRadius:6, cursor:"pointer", background:"transparent", border:`1px solid ${C.border}`, color:C.muted, fontSize:12 }}>Cancel</button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -867,6 +1123,34 @@ export default function IceBoard() {
             )}
             <RosterLegend showRef={false} showRival={true} />
             <RosterGrid roster={RIVAL_ROSTERS[rivalTab]} />
+          </div>
+        </div>
+      )}
+
+      {/* Benchmarks — ECAC reference rosters + custom templates */}
+      {activeTab==="benchmarks" && (
+        <div style={{ flex:1, display:"flex", flexDirection:"column", overflow:"hidden" }}>
+          <div style={{ background:C.surface, borderBottom:`1px solid ${C.border}`, padding:"0 16px", display:"flex", flexShrink:0, overflowX:"auto", alignItems:"center" }}>
+            {benchmarkLibrary.map((r) => (
+              <button key={r.id} type="button" onClick={() => setBenchmarkTabId(r.id)} style={{ background:"none", border:"none", cursor:"pointer", padding:"7px 14px", fontSize:11, fontWeight:600, color:benchmarkTabId===r.id?C.gold:C.muted, borderBottom:`2px solid ${benchmarkTabId===r.id?C.gold:"transparent"}`, whiteSpace:"nowrap" }}>
+                ★ {r.label}
+              </button>
+            ))}
+          </div>
+          <div style={{ flex:1, overflowY:"auto", padding:"14px 18px" }}>
+            {activeBenchmarkRoster ? (
+              <>
+                {activeBenchmarkRoster.record && (
+                  <div style={RECORD_LINE_STYLE}>
+                    Record: {activeBenchmarkRoster.record.w}-{activeBenchmarkRoster.record.l}-{activeBenchmarkRoster.record.t} (W-L-T)
+                  </div>
+                )}
+                <RosterLegend showRef={true} showRival={false} />
+                <RosterGrid roster={activeBenchmarkRoster} />
+              </>
+            ) : (
+              <div style={{ color:C.muted, fontSize:12 }}>No benchmarks.</div>
+            )}
           </div>
         </div>
       )}
