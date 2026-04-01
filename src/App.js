@@ -491,12 +491,20 @@ function formatStrategySeason(startYear) {
   return `${startYear}-${end2}`;
 }
 
-/** Map roster season label to next recruiting class season. */
+/** Map roster label like "'26-'27" or "Williams '25-'26" to "2026-27". */
+function seasonFromRosterLabel(label) {
+  const m = String(label || "").match(/'(\d{2})-'(\d{2})/);
+  if (!m) return null;
+  const start = 2000 + Number(m[1]);
+  return formatStrategySeason(start);
+}
+
+/** Map roster season to the incoming recruiting class season (next year). */
 function classSeasonFromRosterLabel(label) {
   const m = String(label || "").match(/'(\d{2})-'(\d{2})/);
   if (!m) return null;
-  const start = 2000 + Number(m[2]);
-  return formatStrategySeason(start);
+  const classStart = 2000 + Number(m[2]);
+  return formatStrategySeason(classStart);
 }
 
 function countGraduatingByPosition(roster) {
@@ -668,6 +676,27 @@ const INITIAL_PROSPECTS = {
     mkP(303,"Y. Korhonen","LW","OJHL","Aurora Tigers",19,37,14,19,"6'1\"","186",[mkEval("e1","Nov 10","OJHL showcase",4,4,3,4,4),mkEval("e2","Feb 8","Aurora playoff run",4,5,3,5,5)],"Offer verbally accepted — skilled winger with elite compete level","A",[{id:1,from:"coach",text:"Yianni — just wanted to say again how thrilled we are.",time:"Mar 5, 9:00am"},{id:2,from:"prospect",text:"Coach, Williams was always my dream school. Can't wait.",time:"Mar 5, 10:00am"}],null,[{id:"n1",text:"Brother played at Bowdoin — family very familiar with NESCAC culture.",date:"Feb 25, 2025",time:"2:00pm"}]),
   ],
 };
+
+// Shuffle initial pipeline placement so each stage starts with a fresh mix.
+(() => {
+  const stageKeys = ["identified", "contacted", "building", "offer"];
+  const allMovable = stageKeys.flatMap(k => INITIAL_PROSPECTS[k] || []);
+  const shuffled = [...allMovable].sort((a, b) => hashStr(`${a.id}-${a.name}`) - hashStr(`${b.id}-${b.name}`));
+  const bucketed = { identified: [], contacted: [], building: [], offer: [] };
+  shuffled.forEach((p, idx) => {
+    bucketed[stageKeys[idx % stageKeys.length]].push(p);
+  });
+  stageKeys.forEach(k => {
+    INITIAL_PROSPECTS[k] = bucketed[k];
+  });
+
+  // Requirement: every committed player is a 2005 birth year.
+  INITIAL_PROSPECTS.committed = (INITIAL_PROSPECTS.committed || []).map(p => ({
+    ...p,
+    age: 21,
+    birthYear: 2005,
+  }));
+})();
 
 // ── Small shared components ──────────────────────────────────────────────────
 
@@ -1436,11 +1465,11 @@ function StrategyBoardTab({
       <div style={{ flex:1, overflowY:"auto", padding:"14px 18px" }}>
         <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:10, padding:12, marginBottom:12 }}>
           <div style={{ display:"flex", gap:10, alignItems:"center", flexWrap:"wrap", marginBottom:8 }}>
-            <div style={{ fontSize:11, color:C.muted }}>Season</div>
+            <div style={{ fontSize:11, color:C.muted }}>Spots for Fall of</div>
             <select value={season} onChange={e => onSeasonChange(e.target.value)} style={{ background:C.card, border:`1px solid ${C.border}`, color:C.text, borderRadius:6, padding:"5px 8px", fontSize:11 }}>
               {seasons.map(s => <option key={s} value={s}>{s}</option>)}
             </select>
-            <div style={{ fontSize:11, color:C.muted }}>Graduating after this season: {graduating.F}F, {graduating.D}D, {graduating.G}G</div>
+            <div style={{ fontSize:11, color:C.muted }}>Seniors graduating: {graduating.F}F, {graduating.D}D, {graduating.G}G</div>
           </div>
           <div style={{ display:"flex", gap:8, flexWrap:"wrap", marginBottom:10 }}>
             {[
@@ -1558,7 +1587,11 @@ export default function IceBoard() {
   const [pipelineMinRating, setPipelineMinRating] = useState("all");
   const [pipelineBirthYearFilter, setPipelineBirthYearFilter] = useState("all");
   const [pipelineLastContactFilter, setPipelineLastContactFilter] = useState("all");
-  const [strategySeason, setStrategySeason] = useState(() => formatStrategySeason(new Date().getFullYear() + 1));
+  const [strategySeason, setStrategySeason] = useState(() => {
+    const currentWarSeason = seasonFromRosterLabel(WILLIAMS_CURRENT_SEASON.label);
+    const y = currentWarSeason ? Number(currentWarSeason.slice(0, 4)) + 1 : new Date().getFullYear() + 1;
+    return formatStrategySeason(y);
+  });
   const [strategyClasses, setStrategyClasses] = useState({});
 
   applySchoolTheme(school);
@@ -1610,7 +1643,8 @@ export default function IceBoard() {
   ]);
 
   const strategySeasons = useMemo(() => {
-    const y = new Date().getFullYear() + 1;
+    const currentWarSeason = seasonFromRosterLabel(WILLIAMS_CURRENT_SEASON.label);
+    const y = currentWarSeason ? Number(currentWarSeason.slice(0, 4)) + 1 : new Date().getFullYear() + 1;
     return [formatStrategySeason(y), formatStrategySeason(y + 1), formatStrategySeason(y + 2)];
   }, []);
 
@@ -1626,9 +1660,28 @@ export default function IceBoard() {
       ...futureProjections,
       ...customWarRosters,
     ];
-    const match = candidates.find(r => classSeasonFromRosterLabel(r.label) === strategySeason);
-    if (!match) return null;
-    return mergeRosterEdit(match, rosterEdits[match.id]);
+    const bySeason = (s) => candidates.find(r => classSeasonFromRosterLabel(r.label) === s) || null;
+    const direct = bySeason(strategySeason);
+    if (direct) {
+      const mergedDirect = mergeRosterEdit(direct, rosterEdits[direct.id]);
+      const directGrad = countGraduatingByPosition(mergedDirect);
+      if ((directGrad.F + directGrad.D + directGrad.G) > 0) {
+        return mergedDirect;
+      }
+    }
+
+    // Fallback: if exact season doesn't exist yet, advance previous season one year.
+    const start = Number(String(strategySeason).slice(0, 4));
+    if (Number.isFinite(start)) {
+      const prevSeason = formatStrategySeason(start - 1);
+      const prev = bySeason(prevSeason);
+      if (prev) {
+        const mergedPrev = mergeRosterEdit(prev, rosterEdits[prev.id]);
+        return { ...mergedPrev, ...advanceRosterFromSource(mergedPrev) };
+      }
+    }
+    if (direct) return mergeRosterEdit(direct, rosterEdits[direct.id]);
+    return null;
   }, [futureProjections, customWarRosters, rosterEdits, strategySeason]);
 
   const strategyGraduating = useMemo(
